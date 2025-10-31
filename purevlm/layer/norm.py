@@ -1,4 +1,5 @@
 import torch
+import purevlm.cuda_ops as cuda_ops
 
 class LayerNorm:
     def __init__(self, normalized_shape, eps=1e-6):
@@ -20,8 +21,6 @@ class RMSNorm:
         self.eps = eps
 
     def __call__(self, hidden_states):
-        input_dtype = hidden_states.dtype
-        hidden_states = hidden_states.to(torch.float32)
-        variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.eps)
-        return self.weight * hidden_states.to(input_dtype)
+        output_tensor = torch.empty_like(hidden_states)
+        cuda_ops.rms_norm_(output_tensor, hidden_states, self.weight, self.eps)
+        return output_tensor

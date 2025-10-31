@@ -17,19 +17,21 @@ void rms_norm(torch::Tensor& out,
               torch::Tensor& weight,
               double epsilon);
 
-// void rotary_embedding(
-//     torch::Tensor& positions,  // [batch_size, seq_len] or [num_tokens]
-//     torch::Tensor& query,  // [batch_size, seq_len, num_heads * head_size] or
-//                            // [num_tokens, num_heads * head_size] or
-//                            // [batch_size, seq_len, num_heads, head_size] or
-//                            // [num_tokens, num_heads, head_size]
-//     torch::Tensor& key,    // [batch_size, seq_len, num_kv_heads * head_size] or
-//                            // [num_tokens, num_kv_heads * head_size] or
-//                            // [batch_size, seq_len, num_heads, head_size] or
-//                            // [num_tokens, num_heads, head_size]
-//     int64_t head_size,
-//     torch::Tensor& cos_sin_cache,  // [max_position, rot_dim]
-//     bool is_neox);
+void rotary_embedding(
+    torch::Tensor& positions,  // [batch_size, seq_len] or [num_tokens]
+    torch::Tensor& query,  // [batch_size, seq_len, num_heads * head_size] or
+                           // [num_tokens, num_heads * head_size] or
+                           // [batch_size, seq_len, num_heads, head_size] or
+                           // [num_tokens, num_heads, head_size]
+    std::optional<torch::Tensor> key,
+    // null or
+    // [batch_size, seq_len, num_kv_heads * head_size] or
+    // [num_tokens, num_kv_heads * head_size] or
+    // [batch_size, seq_len, num_heads, head_size] or
+    // [num_tokens, num_heads, head_size]
+    int64_t head_size,
+    torch::Tensor& cos_sin_cache,  // [max_position, rot_dim]
+    bool is_neox);
 // /////////////////////////////elementwise ops end/////////////////////////////
 
 

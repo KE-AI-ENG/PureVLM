@@ -192,7 +192,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // m.def("fp8_quant_", &fp8_quant, "dynamic per token scaled fp8 quant");
     // m.def("int8_quant_", &int8_quant, "dynamic per token scaled int8 quant");
     m.def("rms_norm_", &rms_norm, "rms norm");
-    // m.def("rotary_emb_", &rotary_embedding, "rotary embedding");
+    m.def("rotary_emb_", &rotary_embedding, "rotary embedding");
 
     // m.def("fp8_scaled_mm_", &fp8_scaled_mm, "CUTLASS fp8 Symmetric Scaled Matrix Multiplication");
     // m.def("int8_scaled_mm_", &int8_scaled_mm, "CUTLASS int8 ASymmetric Scaled Matrix Multiplication");

@@ -1,0 +1,10 @@
+__pycache__/
+.pyc
+build/
+dist
+release-dist
+*.egg-info
+.idea
+.vscode
+*.nsys-rep
+*.sqlite

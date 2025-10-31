@@ -389,8 +389,10 @@ class Qwen3VLTextRotaryEmbedding:
             cos = emb.cos() * self.attention_scaling
             sin = emb.sin() * self.attention_scaling
 
-        return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
-
+        # return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
+        rotary_emb_merged = torch.cat((cos.squeeze(0)[:,:(self.config.head_dim//2)], sin.squeeze(0)[:,:(self.config.head_dim//2)]), dim=-1).to(x.dtype)
+        return rotary_emb_merged
+    
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     """Applies Rotary Position Embedding to the query and key tensors.
 
@@ -457,28 +459,17 @@ class Qwen3VLTextAttention:
         cache_position: Optional[torch.LongTensor] = None,
     ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
         input_shape = hidden_states.shape[:-1]
-
         hidden_shape = (*input_shape, -1, self.head_dim)
 
-        query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-        key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-        value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+        query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape))
+        key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape))
+        value_states = self.v_proj(hidden_states)
 
-        cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+        L.RotEmb(query_states, key_states, self.head_dim, position_embeddings, is_neox=True)
 
-        # test rotary emb op
-        # query_states = self.q_norm(self.q_proj(hidden_states))
-        # key_states = self.k_norm(self.k_proj(hidden_states))
-        # value_states = self.v_proj(hidden_states)
-
-        # rotary_emb_merged = torch.cat((position_embeddings[0].squeeze(0)[:,0::2], position_embeddings[1].squeeze(0)[:,1::2]), dim=-1).to(hidden_states.dtype)
-        # L.RotEmb(query_states, key_states, self.head_dim, rotary_emb_merged, is_neox=True)
-
-        # query_states = query_states.view(*input_shape, -1, self.head_dim).transpose(1, 2)
-        # key_states = key_states.view(*input_shape, -1, self.head_dim).transpose(1, 2)
-        # value_states = value_states.view(*input_shape, -1, self.head_dim).transpose(1, 2)
-        ### test rotary emb op
+        query_states = query_states.transpose(1, 2)
+        key_states = key_states.transpose(1, 2)
+        value_states = value_states.view(*input_shape, -1, self.head_dim).transpose(1, 2)
 
         if past_key_values is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache

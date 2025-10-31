@@ -11,6 +11,7 @@
 #include <cmath>
 
 #include "dispatch_utils.h"
+#include "vectorization_utils.cuh"
 #include "cub_helpers.h"
 
 // #include <cub/util_type.cuh>
@@ -43,15 +44,50 @@ template <typename scalar_t>
 __global__ void rms_norm_kernel(
     scalar_t* __restrict__ out,           // [..., hidden_size]
     const scalar_t* __restrict__ input,   // [..., hidden_size]
+    const int64_t input_stride,
     const scalar_t* __restrict__ weight,  // [hidden_size]
     const float epsilon, const int num_tokens, const int hidden_size) {
+  // __shared__ float s_variance;
+  // float variance = 0.0f;
+
+  // for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
+  //   const float x = (float)input[blockIdx.x * hidden_size + idx];
+  //   variance += x * x;
+  // }
+
+  // using BlockReduce = cub::BlockReduce<float, 1024>;
+  // __shared__ typename BlockReduce::TempStorage reduceStore;
+  // variance = BlockReduce(reduceStore).Reduce(variance, CubAddOp{}, blockDim.x);
+
+  // if (threadIdx.x == 0) {
+  //   s_variance = rsqrtf(variance / hidden_size + epsilon);
+  // }
+  // __syncthreads();
+
+  // for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
+  //   float x = (float)input[blockIdx.x * hidden_size + idx];
+  //   out[blockIdx.x * hidden_size + idx] =
+  //       ((scalar_t)(x * s_variance)) * weight[idx];
+  // }
+
   __shared__ float s_variance;
   float variance = 0.0f;
+  const scalar_t* input_row = input + blockIdx.x * input_stride;
 
-  for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
-    const float x = (float)input[blockIdx.x * hidden_size + idx];
+  constexpr int VEC_SIZE = 8;
+  auto vec_op = [&variance](const vec_n_t<scalar_t, VEC_SIZE>& vec) {
+#pragma unroll
+    for (int i = 0; i < VEC_SIZE; ++i) {
+      float x = static_cast<float>(vec.val[i]);
+      variance += x * x;
+    }
+  };
+  auto scalar_op = [&variance](const scalar_t& val) {
+    float x = static_cast<float>(val);
     variance += x * x;
-  }
+  };
+  fastdm::vectorize_read_with_alignment<VEC_SIZE>(
+      input_row, hidden_size, threadIdx.x, blockDim.x, vec_op, scalar_op);
 
   using BlockReduce = cub::BlockReduce<float, 1024>;
   __shared__ typename BlockReduce::TempStorage reduceStore;
@@ -63,10 +99,11 @@ __global__ void rms_norm_kernel(
   __syncthreads();
 
   for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
-    float x = (float)input[blockIdx.x * hidden_size + idx];
+    float x = (float)input[blockIdx.x * input_stride + idx];
     out[blockIdx.x * hidden_size + idx] =
         ((scalar_t)(x * s_variance)) * weight[idx];
   }
+
 }
 
 // template <typename scalar_t, bool IS_NEOX>
@@ -420,18 +457,39 @@ void rms_norm(torch::Tensor& out,     // [..., hidden_size]
               torch::Tensor& input,   // [..., hidden_size]
               torch::Tensor& weight,  // [hidden_size]
               double epsilon) {
+  // int hidden_size = input.size(-1);
+  // int num_tokens = input.numel() / hidden_size;
+
+  // dim3 grid(num_tokens);
+  // dim3 block(std::min(hidden_size, 1024));
+  // const at::cuda::OptionalCUDAGuard device_guard(device_of(input));
+  // const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  // FASTDM_DISPATCH_FLOATING_TYPES(input.scalar_type(), "rms_norm_kernel", [&] {
+  //   fastdm::rms_norm_kernel<scalar_t><<<grid, block, 0, stream>>>(
+  //       out.data_ptr<scalar_t>(), input.data_ptr<scalar_t>(),
+  //       weight.data_ptr<scalar_t>(), epsilon, num_tokens, hidden_size);
+  // });
   int hidden_size = input.size(-1);
-  int num_tokens = input.numel() / hidden_size;
+
+  // We cannot just use `input.stride(-2)` if the tensor is not row-major.
+  // Instead, we use a 2d view to get the second-innermost stride.
+  // That way the dimensions (except the last one) can be arbitrarily permuted.
+  torch::Tensor input_view = input.view({-1, hidden_size});
+
+  int num_tokens = input_view.numel() / hidden_size;
+  int64_t input_stride = input_view.stride(-2);
 
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
-  const at::cuda::OptionalCUDAGuard device_guard(device_of(input));
+  const at::cuda::OptionalCUDAGuard device_guard(device_of(input_view));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-  FASTDM_DISPATCH_FLOATING_TYPES(input.scalar_type(), "rms_norm_kernel", [&] {
-    fastdm::rms_norm_kernel<scalar_t><<<grid, block, 0, stream>>>(
-        out.data_ptr<scalar_t>(), input.data_ptr<scalar_t>(),
-        weight.data_ptr<scalar_t>(), epsilon, num_tokens, hidden_size);
-  });
+  FASTDM_DISPATCH_FLOATING_TYPES(
+      input_view.scalar_type(), "rms_norm_kernel", [&] {
+        fastdm::rms_norm_kernel<scalar_t><<<grid, block, 0, stream>>>(
+            out.data_ptr<scalar_t>(), input_view.data_ptr<scalar_t>(),
+            input_stride, weight.data_ptr<scalar_t>(), epsilon, num_tokens,
+            hidden_size);
+      });
 }
 
 // void rotary_embedding(

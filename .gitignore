@@ -8,3 +8,4 @@ release-dist
 .vscode
 *.nsys-rep
 *.sqlite
+*.so

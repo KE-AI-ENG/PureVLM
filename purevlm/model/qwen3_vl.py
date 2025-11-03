@@ -130,14 +130,15 @@ class KVCache:
         self.value_states = [torch.zeros((batch_size, self.head_num, self.max_cache_len, self.head_dim), dtype=dtype, device=device) for i in range(self.layer_num)]
 
     def update(self, key_states, value_states, layer_idx, cache_position):
-        edge_idx = cache_position[-1].item()
-        if edge_idx>self.max_cache_len:
-            raise ValueError("the setting position exceeds max-cache-len !")
-        self.cur_seq_len = edge_idx+1
         self.key_states[layer_idx].index_copy_(2, cache_position, key_states)
         self.value_states[layer_idx].index_copy_(2, cache_position, value_states)
 
-        return self.key_states[layer_idx][:,:,:self.cur_seq_len,:], self.value_states[layer_idx][:,:,:self.cur_seq_len,:]
+        # Only update cur_seq_len at layer 0
+        if layer_idx == 0:
+            self.cur_seq_len = cache_position[-1].item() + 1
+
+        return (self.key_states[layer_idx][:, :, :self.cur_seq_len, :],
+                self.value_states[layer_idx][:, :, :self.cur_seq_len, :])
 
     def get_seq_length(self):
         return self.cur_seq_len

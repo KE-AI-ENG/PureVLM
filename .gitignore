@@ -9,3 +9,4 @@ release-dist
 *.nsys-rep
 *.sqlite
 *.so
+.codelink

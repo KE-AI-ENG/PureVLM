@@ -523,9 +523,7 @@ class Qwen3VLTextDecoderLayer:
         hidden_states: torch.Tensor,
         position_embeddings: tuple[torch.Tensor, torch.Tensor],
         attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[KVCache] = None,
-        use_cache: Optional[bool] = False,
         cache_position: Optional[torch.LongTensor] = None,
     ) -> torch.Tensor:
         residual = hidden_states
@@ -749,11 +747,9 @@ class Qwen3VLTextModel:
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[KVCache] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
-        use_cache: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
         # args for deepstack
         visual_pos_masks: Optional[torch.Tensor] = None,
@@ -770,8 +766,6 @@ class Qwen3VLTextModel:
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        text_position_ids = position_ids[0]
-
         hidden_states = inputs_embeds
 
         # create position embeddings to be shared across the decoder layers
@@ -782,7 +776,6 @@ class Qwen3VLTextModel:
             layer_outputs = decoder_layer(
                 hidden_states,
                 attention_mask=None,
-                position_ids=text_position_ids,
                 past_key_values=past_key_values,
                 cache_position=cache_position,
                 position_embeddings=position_embeddings,
@@ -1013,14 +1006,9 @@ class Qwen3VLModel:
     def forward(
         self,
         input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[KVCache] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
         pixel_values: Optional[torch.Tensor] = None,
-        pixel_values_videos: Optional[torch.FloatTensor] = None,
         image_grid_thw: Optional[torch.LongTensor] = None,
-        video_grid_thw: Optional[torch.LongTensor] = None,
         cache_position: Optional[torch.LongTensor] = None,
     ):
         r"""
@@ -1029,13 +1017,9 @@ class Qwen3VLModel:
         video_grid_thw (`torch.LongTensor` of shape `(num_videos, 3)`, *optional*):
             The temporal, height and width of feature shape of each video in LLM.
         """
-        if (input_ids is None) ^ (inputs_embeds is not None):
-            raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
-
         inputs_embeds = self.language_model.embed_tokens(input_ids)
 
         image_mask = None
-        video_mask = None
 
         if pixel_values is not None:
             image_embeds, deepstack_image_embeds = self.get_image_features(pixel_values, image_grid_thw)
@@ -1045,41 +1029,12 @@ class Qwen3VLModel:
             )
             inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
-        if pixel_values_videos is not None:
-            video_embeds, deepstack_video_embeds = self.get_video_features(pixel_values_videos, video_grid_thw)
-            video_embeds = torch.cat(video_embeds, dim=0).to(inputs_embeds.device, inputs_embeds.dtype)
-            _, video_mask = self.get_placeholder_mask(
-                input_ids, inputs_embeds=inputs_embeds, video_features=video_embeds
-            )
-            inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
-
         visual_pos_masks = None
         deepstack_visual_embeds = None
-        if image_mask is not None and video_mask is not None:
-            # aggregate visual_pos_masks and deepstack_visual_embeds
-            image_mask = image_mask[..., 0]
-            video_mask = video_mask[..., 0]
-            visual_pos_masks = image_mask | video_mask
-            deepstack_visual_embeds = []
-            image_mask_joint = image_mask[visual_pos_masks]
-            video_mask_joint = video_mask[visual_pos_masks]
-            for img_embed, vid_embed in zip(deepstack_image_embeds, deepstack_video_embeds):
-                embed_joint = img_embed.new_zeros(visual_pos_masks.sum(), img_embed.shape[-1]).to(img_embed.device)
-                embed_joint[image_mask_joint, :] = img_embed
-                embed_joint[video_mask_joint, :] = vid_embed
-                deepstack_visual_embeds.append(embed_joint)
-        elif image_mask is not None:
+        if image_mask is not None:
             image_mask = image_mask[..., 0]
             visual_pos_masks = image_mask
             deepstack_visual_embeds = deepstack_image_embeds
-        elif video_mask is not None:
-            video_mask = video_mask[..., 0]
-            visual_pos_masks = video_mask
-            deepstack_visual_embeds = deepstack_video_embeds
-
-        attention_mask_tensor = (
-            attention_mask if not isinstance(attention_mask, dict) else attention_mask["full_attention"]
-        )
 
         # Calculate RoPE index once per generation in the pre-fill stage only.
         # When compiling, we can't check tensor values thus we check only input length
@@ -1089,8 +1044,7 @@ class Qwen3VLModel:
             position_ids, rope_deltas = self.get_rope_index(
                 input_ids,
                 image_grid_thw,
-                video_grid_thw,
-                attention_mask=attention_mask_tensor,
+                attention_mask=None
             )
             self.rope_deltas = rope_deltas
         # then use the prev pre-calculated rope-deltas to get the correct position ids
@@ -1103,7 +1057,6 @@ class Qwen3VLModel:
         outputs = self.language_model.forward(
             input_ids=None,
             position_ids=position_ids,
-            attention_mask=attention_mask,
             past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
             cache_position=cache_position,
@@ -1134,27 +1087,17 @@ class Qwen3VLForCausalLM:
     def forward(
             self,
             input_ids: torch.LongTensor = None,
-            attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
             past_key_values: Optional[KVCache] = None,
-            inputs_embeds: Optional[torch.FloatTensor] = None,
             pixel_values: Optional[torch.Tensor] = None,
-            pixel_values_videos: Optional[torch.FloatTensor] = None,
             image_grid_thw: Optional[torch.LongTensor] = None,
-            video_grid_thw: Optional[torch.LongTensor] = None,
             cache_position: Optional[torch.LongTensor] = None
     ) -> Tensor:
 
         outputs = self.model.forward(
             input_ids=input_ids,
             pixel_values=pixel_values,
-            pixel_values_videos=pixel_values_videos,
             image_grid_thw=image_grid_thw,
-            video_grid_thw=video_grid_thw,
-            position_ids=position_ids,
-            attention_mask=attention_mask,
             past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
             cache_position=cache_position,
         )
         
@@ -1259,12 +1202,10 @@ class Qwen3VLForCausalLM:
         text_inputs = self.tokenizer(text)
 
         input_ids = torch.tensor(text_inputs.input_ids, dtype=torch.int64, device=self.device)
-        position_ids = None
         attention_mask = torch.tensor(text_inputs.attention_mask, dtype=torch.int64, device=self.device)
-        inputs_embeds = None
         cache_position = torch.tensor([i for i in range(input_ids.shape[-1])], dtype=torch.int64, device=self.device)
 
-        return input_ids, pixel_values, image_grid_thw, position_ids, attention_mask, inputs_embeds, cache_position
+        return input_ids, pixel_values, image_grid_thw, attention_mask, cache_position
 
     def compile_model(self):
         """使用 torch.compile 编译模型"""
@@ -1412,7 +1353,7 @@ class Qwen3VLForCausalLM:
     def generate(self, prompts=None, images=None, generated_len=128, temperature=1.0, do_sample=True, top_p=1.0, top_k=0, repetition_penalty=1.0, presence_penalty=0.0):
         """text生成函数"""
 
-        input_ids, image_values, image_grid_thw, position_ids, attention_mask, inputs_embeds, cache_position = self.prepare_inputs(images, prompts)
+        input_ids, image_values, image_grid_thw, attention_mask, cache_position = self.prepare_inputs(images, prompts)
 
         output_ids = torch.zeros((1,0), dtype=torch.int64, device=self.device)
  
@@ -1422,9 +1363,6 @@ class Qwen3VLForCausalLM:
                 pixel_values = image_values,
                 past_key_values = self.kv_cache,
                 image_grid_thw = image_grid_thw,
-                position_ids = position_ids,
-                attention_mask= attention_mask,
-                inputs_embeds = inputs_embeds,
                 cache_position = cache_position
             )
             

@@ -102,5 +102,6 @@ class Qwen3VLConfig:
         self.text_config = text_config
 
         self.image_token_id = image_token_id
+        self.video_token_id = video_token_id
         self.vision_start_token_id = vision_start_token_id
         self.vision_end_token_id = vision_end_token_id

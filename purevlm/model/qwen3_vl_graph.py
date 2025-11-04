@@ -125,13 +125,49 @@ class KVCache:
         self.device = device
         self.k_cache = torch.empty((self.layer_num, batch_size, self.head_num, self.max_seq_len, self.head_dim), device=self.device, dtype=torch.bfloat16)
         self.v_cache = torch.empty((self.layer_num, batch_size, self.head_num, self.max_seq_len, self.head_dim), device=self.device, dtype=torch.bfloat16)
+        
         self.cur_len = 0
+        # self.decode_position = torch.tensor(0, device='cuda', dtype=torch.int64)
+        # self.all_indices = torch.arange(self.max_seq_len, device=device, dtype=torch.int64)
 
     def update_decode(self, k, v, layer_idx):
-        step_len = k.shape[2]
-        self.k_cache[layer_idx, :, :, self.cur_len:self.cur_len+step_len, :] = k
-        self.v_cache[layer_idx, :, :, self.cur_len:self.cur_len+step_len, :] = v
-        return self.k_cache[layer_idx, :, :, :(self.cur_len+step_len), :], self.v_cache[layer_idx, :, :, :(self.cur_len+step_len), :]
+        # """
+        # Decode 阶段更新（支持 CUDA Graph + 动态切片）
+        
+        # Returns:
+        #     k_out, v_out: 动态长度的 cache
+        # """
+        # # 写入
+        # indices = self.decode_position.view(1, 1, 1, 1).expand_as(k)
+        # self.k_cache[layer_idx].scatter_(dim=2, index=indices, src=k)
+        # self.v_cache[layer_idx].scatter_(dim=2, index=indices, src=v)
+        
+        # # ✅ 动态切片（使用 gather/index_select）
+        # mask = self.all_indices < self.decode_position
+        # # valid_indices = self.all_indices.masked_select(mask)
+        
+        # # k_out = torch.index_select(self.k_cache[layer_idx], dim=2, index=valid_indices)
+        # # v_out = torch.index_select(self.v_cache[layer_idx], dim=2, index=valid_indices)
+        
+        # # return k_out, v_out
+        # return self.k_cache[layer_idx], self.v_cache[layer_idx], mask
+
+        # pos = self.decode_position.item()  # 转为 Python int
+        # self.k_cache[layer_idx, :, :, pos:pos+1, :] = k
+        # self.v_cache[layer_idx, :, :, pos:pos+1, :] = v
+
+        # k_out = self.k_cache[layer_idx, :, :, :pos+1, :]
+        # v_out = self.v_cache[layer_idx, :, :, :pos+1, :]
+
+        #cuda graph capture会把cur_len按python int进行处理，固定化。即便外面控制cur_len加1，在replay的时候仍然会使用capture时的固定值，所以结果有问题
+        #如果想使用cuda graph，只能通过cuda tensor来进行索引，但是这样的话，返回的tensor也是固定shape的了，无法动态切片，所以也需要返回mask，配合self-attn进行计算
+        self.k_cache[layer_idx, :, :, self.cur_len:self.cur_len+1, :] = k
+        self.v_cache[layer_idx, :, :, self.cur_len:self.cur_len+1, :] = v
+
+        k_out = self.k_cache[layer_idx, :, :, :(self.cur_len+1), :]
+        v_out = self.v_cache[layer_idx, :, :, :(self.cur_len+1), :]
+        
+        return k_out, v_out
     
     def update_prefill(self, k, v, layer_idx):
         step_len = k.shape[2]
@@ -140,6 +176,7 @@ class KVCache:
         return self.k_cache[layer_idx, :, :, :step_len, :], self.v_cache[layer_idx, :, :, :step_len, :]
 
     def reset(self):
+        # self.decode_position.zero_()
         self.cur_len = 0
 
 def _compute_default_rope_parameters(
@@ -1198,7 +1235,7 @@ class Qwen3VLModel:
         self,
         input_ids: torch.LongTensor = None,
         past_key_values: Optional[KVCache] = None,
-        pos_idx: int = 0,
+        pos_idx: Optional[torch.LongTensor] = None,
         batch_size: int = 1,
     ):
 
@@ -1237,7 +1274,7 @@ class Qwen3VLForCausalLM:
         # CUDA Graph 相关
         self.decode_graph = None
         self.decode_static_input_ids = None
-        self.decode_static_pos_idx = None
+        self.decode_static_pos_idx_tensor = None
 
     def forward_prefill(
             self,
@@ -1428,20 +1465,22 @@ class Qwen3VLForCausalLM:
 
         return logits
     
-    def init_cuda_graph_decode(self, batch_size=1, seq_len=1, prefill_len=100):
+    def init_cuda_graph_decode(self, batch_size=1, seq_len=1, prefill_len_=100):
         """
         初始化并捕获 decode 阶段的 CUDA Graph
         """
         # 1. 创建静态输入缓冲区
         self.decode_static_input_ids = torch.zeros((batch_size, seq_len), dtype=torch.int64, device=self.device)
-        self.decode_static_pos_idx = prefill_len  # pos_idx 固定值
+        # self.decode_static_pos_idx = prefill_len_  # pos_idx 固定值
+        self.decode_static_pos_idx_tensor = torch.tensor(prefill_len_, dtype=torch.int64, device=self.device)
         self.static_output = torch.zeros((batch_size, seq_len, self.config.text_config.hidden_size), dtype=self.dtype, device=self.device)
 
         # 2. Warmup 一次，确保所有 kernel 已经加载
         _ = self.model.forward_decode(
             input_ids=self.decode_static_input_ids,
             past_key_values=self.kv_cache,
-            pos_idx=self.decode_static_pos_idx,
+            # pos_idx=self.decode_static_pos_idx,
+            pos_idx=self.decode_static_pos_idx_tensor,
             batch_size=batch_size
         )
 
@@ -1453,14 +1492,15 @@ class Qwen3VLForCausalLM:
             self.static_output.copy_(self.model.forward_decode(
                 input_ids=self.decode_static_input_ids,
                 past_key_values=self.kv_cache,
-                pos_idx=self.decode_static_pos_idx,
+                # pos_idx=self.decode_static_pos_idx,
+                pos_idx=self.decode_static_pos_idx_tensor,
                 batch_size=batch_size
             ))
 
         self.decode_graph = g
         print("[CUDA Graph] Decode 阶段捕获完成")
 
-    def forward_decode(self, input_ids=None, past_key_values=None, pos_idx=0, batch_size=1, use_cuda_graph=False):
+    def forward_decode(self, input_ids=None, past_key_values=None, pos_idx=None, batch_size=1):
         outputs = self.model.forward_decode(
             input_ids=input_ids,
             past_key_values=past_key_values,
@@ -1472,13 +1512,17 @@ class Qwen3VLForCausalLM:
         return logits
 
     def generate(self, prompts=None, images=None, generated_len=128, temperature=1.0, do_sample=True,
-             top_p=1.0, top_k=0, repetition_penalty=1.0, presence_penalty=0.0, use_cuda_graph=True):
+             top_p=1.0, top_k=0, repetition_penalty=1.0, presence_penalty=0.0, use_cuda_graph=True, profile=False):
 
         # ===== Prefill 阶段 =====
         input_ids, image_values, image_grid_thw, attention_mask = self.prepare_inputs(images, prompts)
 
         output_ids = torch.zeros((1, 0), dtype=torch.int64, device=self.device)
 
+        # if profile:
+        #     torch.cuda.cudart().cudaProfilerStart()
+
+        # torch.cuda.nvtx.range_push("Prefill Stage")
         logits = self.forward_prefill(
             input_ids=input_ids,
             pixel_values=image_values,
@@ -1487,9 +1531,11 @@ class Qwen3VLForCausalLM:
             position_ids=None,
             attention_mask=attention_mask,
         )
+        # torch.cuda.nvtx.range_pop()
 
         prefill_len = input_ids.shape[-1]
         self.kv_cache.cur_len = prefill_len
+        # self.kv_cache.decode_position.fill_(prefill_len)
 
         # 采样第一个 token
         logits = self._apply_sampling_penalties(logits, output_ids, repetition_penalty, presence_penalty)
@@ -1503,31 +1549,37 @@ class Qwen3VLForCausalLM:
         output_ids = torch.cat([output_ids, next_token], dim=-1)
 
         # ===== Decode 阶段 =====
-        input_ids = next_token
+        # torch.cuda.nvtx.range_push("Decode Stage")
 
         # 如果启用 CUDA Graph，先捕获 decode 阶段
-        if use_cuda_graph:
-            self.init_cuda_graph_decode(batch_size=1, seq_len=1, prefill_len=prefill_len)
+        if use_cuda_graph and self.decode_graph is None:
+            self.init_cuda_graph_decode(batch_size=1, seq_len=1, prefill_len_=prefill_len)
             self.kv_cache.cur_len = prefill_len
+            # self.kv_cache.decode_position.fill_(prefill_len)
 
         for l in range(generated_len - 1):
             if use_cuda_graph:
                 # 更新静态输入缓冲区
                 self.decode_static_input_ids.copy_(next_token)
-                self.decode_static_pos_idx = prefill_len + l
+                self.decode_static_pos_idx_tensor.fill_(prefill_len + l)
 
                 # 执行捕获的 CUDA Graph
                 self.decode_graph.replay()
                 outputs = self.static_output.clone()
 
+                self.kv_cache.cur_len += 1
+                # self.kv_cache.decode_position.fill_(prefill_len + l)
+
                 last_hidden_states = outputs[:, -1, :]
                 logits = self.lm_head(last_hidden_states)
             else:
                 logits = self.forward_decode(
-                    input_ids=input_ids,
+                    input_ids=next_token,
                     past_key_values=self.kv_cache,  # Decode 阶段
-                    pos_idx = prefill_len + l,
+                    pos_idx = torch.tensor(prefill_len + l, dtype=torch.int64, device=self.device)
                 )
+                self.kv_cache.cur_len += 1
+                # self.kv_cache.decode_position.fill_(prefill_len + l)
 
             logits = self._apply_sampling_penalties(logits, output_ids, repetition_penalty, presence_penalty)
             if do_sample:
@@ -1538,11 +1590,14 @@ class Qwen3VLForCausalLM:
                 next_token = torch.argmax(logits, dim=-1, keepdim=True)
 
             output_ids = torch.cat([output_ids, next_token], dim=-1)
-            input_ids = next_token
-            self.kv_cache.cur_len += 1
 
             if next_token.item() == 151643:
                 break
+
+        # torch.cuda.nvtx.range_pop()
+
+        # if profile:
+        #     torch.cuda.cudart().cudaProfilerStop()
 
         self.kv_cache.reset()
         self.model.rope_deltas = None

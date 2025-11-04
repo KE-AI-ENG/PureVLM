@@ -116,136 +116,31 @@ class Qwen3VLConfig:
         self.vision_start_token_id = vision_start_token_id
         self.vision_end_token_id = vision_end_token_id
 
-# class KVCache:
-#     def __init__(self, config:Qwen3VLTextConfig):
-#         self.max_seq_len = config.max_position_embeddings
-#         self.layer_num = config.num_hidden_layers
-#         self.head_num = config.num_key_value_heads
-#         self.head_dim = config.head_dim
-#         self.cur_seq_len = 0
-
-#     def allocate(self, batch_size = 1, max_len=None, dtype=torch.bfloat16, device="cuda"):
-#         self.max_cache_len = self.max_seq_len if max_len is None else max_len
-#         self.key_states = [torch.zeros((batch_size, self.head_num, self.max_cache_len, self.head_dim), dtype=dtype, device=device) for i in range(self.layer_num)]
-#         self.value_states = [torch.zeros((batch_size, self.head_num, self.max_cache_len, self.head_dim), dtype=dtype, device=device) for i in range(self.layer_num)]
-
-#     def update(self, key_states, value_states, layer_idx, cache_position):
-#         # edge_idx = cache_position[-1].item()
-#         # if edge_idx>self.max_cache_len:
-#         #     raise ValueError("the setting position exceeds max-cache-len !")
-#         # self.cur_seq_len = edge_idx+1
-#         self.key_states[layer_idx].index_copy_(2, cache_position, key_states)
-#         self.value_states[layer_idx].index_copy_(2, cache_position, value_states)
-
-#         # return self.key_states[layer_idx][:,:,:self.cur_seq_len,:], self.value_states[layer_idx][:,:,:self.cur_seq_len,:]
-#         return self.key_states[layer_idx][:,:,:(cache_position[-1]+1),:], self.value_states[layer_idx][:,:,:(cache_position[-1]+1),:]
-#         # return torch.index_select(self.key_states[layer_idx], 2, cache_position), torch.index_select(self.value_states[layer_idx], 2, cache_position)
-
-#     def get_seq_length(self):
-#         return self.cur_seq_len
-
-#     def clear(self):
-#         self.cur_seq_len = 0
-
 class KVCache:
-    def __init__(self, config:Qwen3VLTextConfig, device="cuda"):
-        # self.max_seq_len = config.max_position_embeddings
-        self.max_seq_len = 1024
+    def __init__(self, config:Qwen3VLTextConfig, device="cuda", batch_size=1, max_seq_len=None):
+        self.max_seq_len = config.max_position_embeddings if max_seq_len is None else max_seq_len
         self.layer_num = config.num_hidden_layers
         self.head_num = config.num_key_value_heads
         self.head_dim = config.head_dim
         self.device = device
+        self.k_cache = torch.empty((self.layer_num, batch_size, self.head_num, self.max_seq_len, self.head_dim), device=self.device, dtype=torch.bfloat16)
+        self.v_cache = torch.empty((self.layer_num, batch_size, self.head_num, self.max_seq_len, self.head_dim), device=self.device, dtype=torch.bfloat16)
+        self.cur_len = 0
 
-        # 提前分配好所有缓存张量
-        self.key_states = [
-            torch.zeros(1, self.head_num, self.max_seq_len, self.head_dim, device=device, dtype=torch.bfloat16)
-            for _ in range(self.layer_num)
-        ]
-        self.value_states = [
-            torch.zeros(1, self.head_num, self.max_seq_len, self.head_dim, device=device, dtype=torch.bfloat16)
-            for _ in range(self.layer_num)
-        ]
-
-        # 记录当前位置（提前分配）
-        self.cache_position = torch.zeros(self.max_seq_len, dtype=torch.int64, device=device)
-        self.cur_seq_len = torch.zeros(1, dtype=torch.int64, device=device)
-
-        # 提前分配 pos 张量，避免捕获阶段创建
-        self.pos_tensor = torch.zeros(1, dtype=torch.int64, device=device)
-        self.pos_tensor_batch = torch.zeros(1, dtype=torch.int64, device=device)
-
-        # 提前分配 mask（固定大小）
-        self.position_ids = torch.arange(self.max_seq_len, device=device).unsqueeze(0)  # shape: (1, max_seq_len)
-
-    def allocate(self, batch_size=1, dtype=torch.bfloat16, max_len=None):
-        pass
-        # self.max_cache_len = self.max_seq_len if max_len is None else max_len
-        # self.key_states = [
-        #     torch.zeros((batch_size, self.head_num, self.max_seq_len, self.head_dim),
-        #                 dtype=dtype, device=self.device)
-        #     for _ in range(self.layer_num)
-        # ]
-        # self.value_states = [
-        #     torch.zeros((batch_size, self.head_num, self.max_seq_len, self.head_dim),
-        #                 dtype=dtype, device=self.device)
-        #     for _ in range(self.layer_num)
-        # ]
-
-        # # cache_position 固定形状张量（复用）
-        # self.cache_position = torch.full(
-        #     (self.max_seq_len,), -1, dtype=torch.int64, device=self.device
-        # )
-        # self.cur_seq_len = torch.zeros(1, dtype=torch.int64, device=self.device)
-
-    def update_prefill(self, key_states, value_states, layer_idx, seq_len: int):
-        """
-        Prefill 阶段：一次性填充前 seq_len 个位置
-        """
-        self.cache_position[:seq_len] = torch.arange(
-            seq_len, dtype=torch.int64, device=self.device
-        )
-        self.cur_seq_len[0] = seq_len
-
-        valid_pos = self.cache_position[:seq_len]
-        self.key_states[layer_idx].index_copy_(2, valid_pos, key_states[:, :, :seq_len, :])
-        self.value_states[layer_idx].index_copy_(2, valid_pos, value_states[:, :, :seq_len, :])
-
-        return (
-            self.key_states[layer_idx][:, :, :seq_len, :],
-            self.value_states[layer_idx][:, :, :seq_len, :]
-        )
+    def update_decode(self, k, v, layer_idx):
+        step_len = k.shape[2]
+        self.k_cache[layer_idx, :, :, self.cur_len:self.cur_len+step_len, :] = k
+        self.v_cache[layer_idx, :, :, self.cur_len:self.cur_len+step_len, :] = v
+        return self.k_cache[layer_idx, :, :, :(self.cur_len+step_len), :], self.v_cache[layer_idx, :, :, :(self.cur_len+step_len), :]
     
-    def update_decode(self, key_states, value_states, layer_idx, pos: int):
-        # 原地更新位置
-        self.cache_position[pos].fill_(pos)
+    def update_prefill(self, k, v, layer_idx):
+        step_len = k.shape[2]
+        self.k_cache[layer_idx, :, :, :step_len, :] = k
+        self.v_cache[layer_idx, :, :, :step_len, :] = v
+        return self.k_cache[layer_idx, :, :, :step_len, :], self.v_cache[layer_idx, :, :, :step_len, :]
 
-        # 原地更新 pos_tensor
-        self.pos_tensor.fill_(pos + 1)
-
-        # 更新当前序列长度
-        torch.maximum(self.cur_seq_len, self.pos_tensor, out=self.cur_seq_len)
-
-        # 原地更新 KV
-        self.pos_tensor_batch.fill_(pos)
-        self.key_states[layer_idx].index_copy_(2, self.pos_tensor_batch, key_states[:, :, :1, :])
-        self.value_states[layer_idx].index_copy_(2, self.pos_tensor_batch, value_states[:, :, :1, :])
-
-        # return (
-        #     self.key_states[layer_idx][:, :, :self.cur_seq_len[0], :],
-        #     self.value_states[layer_idx][:, :, :self.cur_seq_len[0], :]
-        # )
-        # 不做动态切片，直接返回整个缓存 + mask
-        mask = self.position_ids < self.cur_seq_len
-        return self.key_states[layer_idx], self.value_states[layer_idx], mask
-
-    def clear(self):
-        for k, v in zip(self.key_states, self.value_states):
-            k.zero_()
-            v.zero_()
-        self.cur_seq_len.zero_()
-        self.cache_position.fill_(-1)
-        self.pos_tensor.fill_(0)
-        self.pos_tensor_batch.fill_(0)
+    def reset(self):
+        self.cur_len = 0
 
 def _compute_default_rope_parameters(
     config: Optional[Qwen3VLTextConfig] = None,
@@ -577,7 +472,7 @@ class Qwen3VLTextAttention:
         if past_key_values is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
             #cache_kwargs = {"sin = sin, "cos = cos, "cache_position = cache_position}
-            key_states, value_states = past_key_values.update_prefill(key_states, value_states, self.layer_idx, key_states.shape[2])
+            key_states, value_states = past_key_values.update_prefill(key_states, value_states, self.layer_idx)
 
         attn_output = torch.nn.functional.scaled_dot_product_attention(
             query_states,
@@ -598,7 +493,6 @@ class Qwen3VLTextAttention:
         hidden_states: torch.Tensor,
         position_embeddings: tuple[torch.Tensor, torch.Tensor],
         past_key_values: Optional[KVCache] = None,
-        pos_idx: int = 0,
     ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
@@ -616,14 +510,14 @@ class Qwen3VLTextAttention:
         if past_key_values is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
             #cache_kwargs = {"sin = sin, "cos = cos, "cache_position = cache_position}
-            key_states, value_states, mask = past_key_values.update_decode(key_states, value_states, self.layer_idx, pos_idx)
+            key_states, value_states = past_key_values.update_decode(key_states, value_states, self.layer_idx)
 
         # with sdpa_kernel(sdpa_backend):
         attn_output = torch.nn.functional.scaled_dot_product_attention(
             query_states,
             key_states,
             value_states,
-            attn_mask=mask,
+            # attn_mask=mask,
             scale=self.scaling,
             enable_gqa = True
         )
@@ -691,7 +585,6 @@ class Qwen3VLTextDecoderLayer:
         hidden_states: torch.Tensor,
         position_embeddings: tuple[torch.Tensor, torch.Tensor],
         past_key_values: Optional[KVCache] = None,
-        pos_idx: int = 0,
     ) -> torch.Tensor:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
@@ -700,7 +593,6 @@ class Qwen3VLTextDecoderLayer:
             hidden_states=hidden_states,
             past_key_values=past_key_values,
             position_embeddings=position_embeddings,
-            pos_idx=pos_idx
         )
         hidden_states = residual + hidden_states
 
@@ -969,7 +861,6 @@ class Qwen3VLTextModel:
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[KVCache] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
-        pos_idx: Optional[int] = 0,
     ):
         r"""
         visual_pos_masks (`torch.Tensor` of shape `(batch_size, seqlen)`, *optional*):
@@ -992,7 +883,6 @@ class Qwen3VLTextModel:
             layer_outputs = decoder_layer.decode(
                 hidden_states,
                 past_key_values=past_key_values,
-                pos_idx=pos_idx,
                 position_embeddings=position_embeddings,
             )
             hidden_states = layer_outputs
@@ -1322,7 +1212,6 @@ class Qwen3VLModel:
             position_ids=position_ids,
             past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
-            pos_idx=pos_idx,
         )
 
         return outputs
@@ -1333,9 +1222,9 @@ class Qwen3VLForCausalLM:
         super().__init__()
         self.model = Qwen3VLModel(config, device=device)
         self.lm_head = L.QLinear(config.text_config.hidden_size, config.text_config.vocab_size, bias=False)
-        self.kv_cache = KVCache(config.text_config)
+        self.kv_cache = KVCache(config.text_config, batch_size=batch_size, max_seq_len=max_length)
 
-        self.kv_cache.allocate(batch_size=batch_size, max_len=max_length)
+        # self.kv_cache.allocate(batch_size=batch_size, max_len=max_length)
 
         self.config = config
 
@@ -1349,7 +1238,6 @@ class Qwen3VLForCausalLM:
         self.decode_graph = None
         self.decode_static_input_ids = None
         self.decode_static_pos_idx = None
-        self.decode_static_logits = None
 
     def forward_prefill(
             self,
@@ -1380,26 +1268,6 @@ class Qwen3VLForCausalLM:
         logits = self.lm_head(last_hidden_states)
         
         return logits
-    
-    # def forward_decode(
-    #         self,
-    #         input_ids: torch.LongTensor = None,
-    #         past_key_values: Optional[KVCache] = None,
-    #         pos_idx: int = 0,
-    #         batch_size: int = 1
-    # ) -> Tensor:
-
-    #     outputs = self.model.forward_decode(
-    #         input_ids=input_ids,
-    #         past_key_values=past_key_values,
-    #         pos_idx=pos_idx,
-    #         batch_size=batch_size
-    #     )
-        
-    #     last_hidden_states = outputs[:, -1, :] #get last hidden_states
-    #     logits = self.lm_head(last_hidden_states)
-        
-    #     return logits
 
     def smart_resize(
         self, height: int, width: int, factor: int = 28, min_pixels: int = 56 * 56, max_pixels: int = 14 * 14 * 4 * 1280
@@ -1497,12 +1365,8 @@ class Qwen3VLForCausalLM:
         text_inputs = self.tokenizer(text)
 
         input_ids = torch.tensor(text_inputs.input_ids, dtype=torch.int64, device=self.device)
-        # position_ids = None
         attention_mask = torch.tensor(text_inputs.attention_mask, dtype=torch.int64, device=self.device)
-        # inputs_embeds = None
-        # cache_position = torch.tensor([i for i in range(input_ids.shape[-1])], dtype=torch.int64, device=self.device)
 
-        # return input_ids, pixel_values, image_grid_thw, position_ids, attention_mask, inputs_embeds, cache_position
         return input_ids, pixel_values, image_grid_thw, attention_mask
 
     def compile_model(self):
@@ -1563,65 +1427,18 @@ class Qwen3VLForCausalLM:
                 logits[b, indices_to_remove] = float('-inf')
 
         return logits
-
-    # def generate(self, prompts=None, images=None, generated_len=128, temperature=1.0, do_sample=True, top_p=1.0, top_k=0, repetition_penalty=1.0, presence_penalty=0.0):
-    #     """text生成函数"""
-
-    #     input_ids, image_values, image_grid_thw, position_ids, attention_mask, inputs_embeds, cache_position = self.prepare_inputs(images, prompts)
-
-    #     output_ids = torch.zeros((1,0), dtype=torch.int64, device=self.device)
- 
-    #     for _ in range(generated_len):
-    #         outputs = self.forward(
-    #             input_ids = input_ids,
-    #             pixel_values = image_values,
-    #             past_key_values = self.kv_cache,
-    #             image_grid_thw = image_grid_thw,
-    #             position_ids = position_ids,
-    #             attention_mask= attention_mask,
-    #             inputs_embeds = inputs_embeds,
-    #             cache_position = cache_position
-    #         )
-            
-    #         # 应用惩罚
-    #         outputs = self._apply_sampling_penalties(outputs, output_ids, repetition_penalty, presence_penalty)
-
-    #         if do_sample:
-    #             # 应用 top_k / top_p
-    #             outputs = self._top_k_top_p_filtering(outputs, top_k=top_k, top_p=top_p)
-    #             probs = F.softmax(outputs / temperature, dim=-1)
-    #             next_token = torch.multinomial(probs, num_samples=1)
-    #         else:
-    #             next_token = torch.argmax(outputs, dim=-1, keepdim=True)
-
-    #         #make next-step inputs
-    #         input_ids = next_token
-    #         image_values = None
-    #         attention_mask = torch.cat([attention_mask, torch.ones((1,1), dtype=torch.int64, device=self.device)], dim=-1)
-    #         cache_position = torch.tensor([cache_position[-1]+1], dtype=torch.int64, device=self.device)
-
-    #         output_ids = torch.cat([output_ids, next_token], dim=-1)
-            
-    #         # 检查是否生成了结束token
-    #         if next_token.item() == 151643:  # 151643是结束token
-    #             break
-        
-    #     #model reset
-    #     self.kv_cache.clear()
-    #     self.model.rope_deltas = None
-        
-    #     return output_ids
     
-    def init_cuda_graph_decode(self, batch_size=1, seq_len=1):
+    def init_cuda_graph_decode(self, batch_size=1, seq_len=1, prefill_len=100):
         """
         初始化并捕获 decode 阶段的 CUDA Graph
         """
         # 1. 创建静态输入缓冲区
         self.decode_static_input_ids = torch.zeros((batch_size, seq_len), dtype=torch.int64, device=self.device)
-        self.decode_static_pos_idx = 0  # pos_idx 固定值
+        self.decode_static_pos_idx = prefill_len  # pos_idx 固定值
+        self.static_output = torch.zeros((batch_size, seq_len, self.config.text_config.hidden_size), dtype=self.dtype, device=self.device)
 
         # 2. Warmup 一次，确保所有 kernel 已经加载
-        _ = self.forward_decode(
+        _ = self.model.forward_decode(
             input_ids=self.decode_static_input_ids,
             past_key_values=self.kv_cache,
             pos_idx=self.decode_static_pos_idx,
@@ -1633,41 +1450,26 @@ class Qwen3VLForCausalLM:
         # 3. 捕获 CUDA Graph
         g = torch.cuda.CUDAGraph()
         with torch.cuda.graph(g):
-            self.decode_static_logits = self.forward_decode(
+            self.static_output.copy_(self.model.forward_decode(
                 input_ids=self.decode_static_input_ids,
                 past_key_values=self.kv_cache,
                 pos_idx=self.decode_static_pos_idx,
                 batch_size=batch_size
-            )
+            ))
 
         self.decode_graph = g
         print("[CUDA Graph] Decode 阶段捕获完成")
 
     def forward_decode(self, input_ids=None, past_key_values=None, pos_idx=0, batch_size=1, use_cuda_graph=False):
-        """
-        如果 use_cuda_graph=True，则使用捕获的 CUDA Graph
-        """
-        if use_cuda_graph:
-            if self.decode_graph is None:
-                raise RuntimeError("CUDA Graph 未初始化，请先调用 init_cuda_graph_decode()")
-
-            # 更新静态输入缓冲区
-            self.decode_static_input_ids.copy_(input_ids)
-            self.decode_static_pos_idx = pos_idx
-
-            # 执行捕获的 CUDA Graph
-            self.decode_graph.replay()
-            return self.decode_static_logits
-        else:
-            outputs = self.model.forward_decode(
-                input_ids=input_ids,
-                past_key_values=past_key_values,
-                pos_idx=pos_idx,
-                batch_size=batch_size
-            )
-            last_hidden_states = outputs[:, -1, :]
-            logits = self.lm_head(last_hidden_states)
-            return logits
+        outputs = self.model.forward_decode(
+            input_ids=input_ids,
+            past_key_values=past_key_values,
+            pos_idx=pos_idx,
+            batch_size=batch_size
+        )
+        last_hidden_states = outputs[:, -1, :]
+        logits = self.lm_head(last_hidden_states)
+        return logits
 
     def generate(self, prompts=None, images=None, generated_len=128, temperature=1.0, do_sample=True,
              top_p=1.0, top_k=0, repetition_penalty=1.0, presence_penalty=0.0, use_cuda_graph=True):
@@ -1686,6 +1488,9 @@ class Qwen3VLForCausalLM:
             attention_mask=attention_mask,
         )
 
+        prefill_len = input_ids.shape[-1]
+        self.kv_cache.cur_len = prefill_len
+
         # 采样第一个 token
         logits = self._apply_sampling_penalties(logits, output_ids, repetition_penalty, presence_penalty)
         if do_sample:
@@ -1700,26 +1505,28 @@ class Qwen3VLForCausalLM:
         # ===== Decode 阶段 =====
         input_ids = next_token
 
-        input_len = input_ids.shape[-1]
-
         # 如果启用 CUDA Graph，先捕获 decode 阶段
         if use_cuda_graph:
-            self.init_cuda_graph_decode(batch_size=1, seq_len=1) #kv cache会update，结果不对
+            self.init_cuda_graph_decode(batch_size=1, seq_len=1, prefill_len=prefill_len)
+            self.kv_cache.cur_len = prefill_len
 
         for l in range(generated_len - 1):
             if use_cuda_graph:
                 # 更新静态输入缓冲区
                 self.decode_static_input_ids.copy_(next_token)
-                self.decode_static_pos_idx = input_len + l
+                self.decode_static_pos_idx = prefill_len + l
 
                 # 执行捕获的 CUDA Graph
                 self.decode_graph.replay()
-                logits = self.decode_static_logits
+                outputs = self.static_output.clone()
+
+                last_hidden_states = outputs[:, -1, :]
+                logits = self.lm_head(last_hidden_states)
             else:
                 logits = self.forward_decode(
                     input_ids=input_ids,
                     past_key_values=self.kv_cache,  # Decode 阶段
-                    pos_idx = input_len + l,
+                    pos_idx = prefill_len + l,
                 )
 
             logits = self._apply_sampling_penalties(logits, output_ids, repetition_penalty, presence_penalty)
@@ -1732,10 +1539,11 @@ class Qwen3VLForCausalLM:
 
             output_ids = torch.cat([output_ids, next_token], dim=-1)
             input_ids = next_token
+            self.kv_cache.cur_len += 1
 
             if next_token.item() == 151643:
                 break
 
-        self.kv_cache.clear()
+        self.kv_cache.reset()
         self.model.rope_deltas = None
         return output_ids

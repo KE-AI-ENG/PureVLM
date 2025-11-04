@@ -8,7 +8,8 @@ from safetensors.torch import load_file
 import torch
 from transformers import AutoTokenizer
 
-from purevlm.model.qwen3_vl import Qwen3VLConfig, Qwen3VLTextConfig, Qwen3VLVisionConfig, Qwen3VLForCausalLM
+from purevlm.model.config import Qwen3VLConfig, Qwen3VLTextConfig, Qwen3VLVisionConfig
+from purevlm.model.qwen3_vl import Qwen3VLForCausalLM
 
 from purevlm.utils import weight_loading
 

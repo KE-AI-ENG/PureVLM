@@ -100,6 +100,8 @@ def weight_loading(model, checkpoint, device='cuda'):
 
                 if isinstance(layer_obj, QLinear):
                     layer_obj.set_weight(device_tensor)
+                    if layer_obj.get_marlin_status() == (True, True): 
+                        layer_obj.marlin_weight_preprocess(device_tensor)
                 else:
                     layer_obj.weight = device_tensor
             else:

@@ -168,7 +168,16 @@ def create_model(
     # 创建模型
     print("创建Qwen3VL模型...")
     model = Qwen3VLForCausalLM(config, tokenizer=tokenizer, batch_size=batch_size, max_length=max_seq_len, device=device, dtype=torch_dtype)
-    
+
+    using_marlin = True
+    if using_marlin:
+        for layer in model.model.language_model.layers: # 遍历text_model decode_layer
+            layer.self_attn.q_proj.set_using_marlin()
+            layer.self_attn.o_proj.set_using_marlin()
+            layer.mlp.up_proj.set_using_marlin()
+            layer.mlp.gate_proj.set_using_marlin()
+            layer.mlp.down_proj.set_using_marlin()
+
     # 加载权重
     load_safetensors_(model, safetensors_files, device=device)
 

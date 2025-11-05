@@ -22,7 +22,7 @@ class Qwen3VLModel:
     def __init__(self, config, device='cuda'):
         super().__init__()
         self.visual = VisionModel(config.vision_config, device=device)
-        self.language_model = TextModel(config.text_config)
+        self.language_model = TextModel(config.text_config, quant_config=config.quantization_config)
         self.rope_deltas = None  # cache rope_deltas here
         self.config = config
 

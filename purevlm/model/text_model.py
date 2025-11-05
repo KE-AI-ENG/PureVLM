@@ -178,7 +178,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
 class TextAttention:
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(self, config: Qwen3VLTextConfig, layer_idx: int):
+    def __init__(self, config: Qwen3VLTextConfig, layer_idx: int, quant_config=None):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -189,16 +189,16 @@ class TextAttention:
         self.is_causal = True
 
         self.q_proj = L.QLinear(
-            config.hidden_size, config.num_attention_heads * self.head_dim, bias=config.attention_bias
+            config.hidden_size, config.num_attention_heads * self.head_dim, bias=config.attention_bias, quant_config=quant_config
         )
         self.k_proj = L.QLinear(
-            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
+            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias, quant_config=quant_config
         )
         self.v_proj = L.QLinear(
-            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
+            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias, quant_config=quant_config
         )
         self.o_proj = L.QLinear(
-            config.num_attention_heads * self.head_dim, config.hidden_size, bias=config.attention_bias
+            config.num_attention_heads * self.head_dim, config.hidden_size, bias=config.attention_bias, quant_config=quant_config
         )
         self.q_norm = L.RMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
         self.k_norm = L.RMSNorm(
@@ -247,14 +247,14 @@ class TextAttention:
 
 
 class TextMLP:
-    def __init__(self, config):
+    def __init__(self, config, quant_config=None):
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
-        self.gate_proj = L.QLinear(self.hidden_size, self.intermediate_size, bias=False)
-        self.up_proj = L.QLinear(self.hidden_size, self.intermediate_size, bias=False)
-        self.down_proj = L.QLinear(self.intermediate_size, self.hidden_size, bias=False)
+        self.gate_proj = L.QLinear(self.hidden_size, self.intermediate_size, bias=False, quant_config=quant_config)
+        self.up_proj = L.QLinear(self.hidden_size, self.intermediate_size, bias=False, quant_config=quant_config)
+        self.down_proj = L.QLinear(self.intermediate_size, self.hidden_size, bias=False, quant_config=quant_config)
 
     def __call__(self, x):
         down_proj = self.down_proj(nn.functional.silu(self.gate_proj(x)) * self.up_proj(x))
@@ -262,13 +262,13 @@ class TextMLP:
 
 
 class TextDecoderLayer:
-    def __init__(self, config: Qwen3VLTextConfig, layer_idx: int):
+    def __init__(self, config: Qwen3VLTextConfig, layer_idx: int, quant_config=None):
         super().__init__()
         self.hidden_size = config.hidden_size
 
-        self.self_attn = TextAttention(config=config, layer_idx=layer_idx)
+        self.self_attn = TextAttention(config=config, layer_idx=layer_idx, quant_config=quant_config)
 
-        self.mlp = TextMLP(config)
+        self.mlp = TextMLP(config, quant_config=quant_config)
         self.input_layernorm = L.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = L.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
@@ -302,13 +302,13 @@ class TextDecoderLayer:
 
 class TextModel:
 
-    def __init__(self, config: Qwen3VLTextConfig):
+    def __init__(self, config: Qwen3VLTextConfig, quant_config=None):
         super().__init__()
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = L.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
-        self.layers = [TextDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
+        self.layers = [TextDecoderLayer(config, layer_idx, quant_config=quant_config) for layer_idx in range(config.num_hidden_layers)]
         self.norm = L.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = TextRotaryEmbedding(config=config)
 

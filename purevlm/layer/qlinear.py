@@ -23,7 +23,7 @@ class QLinear:
         if quant_config is not None:
             self.quant_method = quant_config.quant_method
         else:
-            self.quant_method = "unquant"
+            self.quant_method = None
 
         if self.quant_method == "compressed-tensors":
             self.weight_packed = None
@@ -31,7 +31,7 @@ class QLinear:
             self.weight_scale = None
 
     def __call__(self, input):
-        if self.quant_config is None:
+        if self.quant_method is None:
             return torch.nn.functional.linear(input, self.weight, self.bias)
         elif self.quant_method == "compressed-tensors":
             return self.apply_gptq_marlin_linear(

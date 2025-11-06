@@ -1,8 +1,12 @@
 from typing import Optional
 import torch
 
-from vllm import _custom_ops as ops
-from vllm.scalar_type import scalar_types
+#TODO remove vllm dependency later
+try:
+    from vllm import _custom_ops as ops
+    from vllm.scalar_type import scalar_types
+except ImportError:
+    print("Warning: vllm is not installed. Compressed-tensors quantization will not work.")
 
 from purevlm.layer.quantization.quant_config import QuantizationConfig
 from purevlm.layer.quantization.utils import marlin_make_workspace_new, get_scale_perms, marlin_make_empty
@@ -85,12 +89,15 @@ class QLinear:
 
         # Set weight based on key and apply post-processing if needed
         if weight_key.endswith(".weight"):
-            if weight.shape != (self.out_features, self.in_features):
-                raise ValueError(
-                    f"Weight shape {weight.shape} does not match expected shape "
-                    f"{(self.out_features, self.in_features)}"
-                )
-            self.weight = weight
+            if self.quant_method is None:
+                if weight.shape != (self.out_features, self.in_features):
+                    raise ValueError(
+                        f"Weight shape {weight.shape} does not match expected shape "
+                        f"{(self.out_features, self.in_features)}"
+                    )
+                self.weight = weight
+            else:
+                pass #TODO support online quantization later
 
         elif weight_key.endswith(".weight_packed"):
             # For compressed-tensors, repack

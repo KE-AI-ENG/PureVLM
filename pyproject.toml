@@ -1,0 +1,59 @@
+[build-system]
+requires = [
+    "setuptools>=64",
+    "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "purevlm"
+version = "0.1.0"
+description = "PureVLM - A Vision Language Model inference engine based on Qwen3VL"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT License"}
+authors = [
+    {name = "MLSys"}
+]
+keywords = [
+    "vision-language-model",
+    "vlm",
+    "qwen3vl",
+    "multimodal",
+    "deep-learning",
+    "pytorch"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "torch>=2.0.0",
+    "numpy>=1.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+]
+
+[project.scripts]
+purevlm-serve = "purevlm.serve:main"
+
+[tool.setuptools]
+packages = {find = {exclude = ["tests*", "examples*", "docs*"]}}
+
+[tool.setuptools.package-data]
+# purevlm = ["configs/*.json", "configs/*.yaml"]

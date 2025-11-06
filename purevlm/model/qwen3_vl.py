@@ -159,6 +159,8 @@ class Qwen3VLForCausalLM:
 
         output_ids = torch.zeros((1,0), dtype=torch.int64, device=self.device)
 
+        prefill_lengths = input_ids.shape[1]
+
         for _ in range(generated_len):
             logits = self.forward(
                 input_ids = input_ids,
@@ -196,4 +198,6 @@ class Qwen3VLForCausalLM:
         self.kv_cache.clear()
         self.model.rope_deltas = None
 
-        return output_ids
+        decode_lenths = output_ids.shape[1]
+
+        return output_ids, prefill_lengths, decode_lenths

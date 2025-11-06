@@ -189,7 +189,7 @@ def generate_text(
     max_tokens: int = 128,
     temperature: float = 0.7,
     do_sample: bool = True
-) -> str:
+) -> tuple[str, int, int]:
     """生成文本"""
     global model
     
@@ -198,7 +198,7 @@ def generate_text(
     
     # 生成文本
     with torch.no_grad():
-        generated_ids = model.generate(
+        generated_ids, p_len, d_len = model.generate(
             prompts=prompt,
             images=image,
             generated_len=max_tokens,  # 生成长度
@@ -212,14 +212,14 @@ def generate_text(
         clean_up_tokenization_spaces=False
     )
     
-    return output_text[0] if output_text else ""
+    return output_text[0] if output_text else "" , p_len, d_len
 
-def estimate_tokens(text: str) -> int:
-    """估算 token 数量（简单估算）"""
-    # 简单估算：中文按字符数，英文按单词数
-    chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
-    english_words = len([w for w in text.split() if w.isascii()])
-    return chinese_chars + english_words
+# def estimate_tokens(text: str) -> int:
+#     """估算 token 数量（简单估算）"""
+#     # 简单估算：中文按字符数，英文按单词数
+#     chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+#     english_words = len([w for w in text.split() if w.isascii()])
+#     return chinese_chars + english_words
 
 # ==================== API 端点 ====================
 
@@ -289,7 +289,7 @@ async def chat_completions(request: ChatCompletionRequest):
         full_prompt = build_prompt(system_prompt, user_prompt, has_image=image is not None)
         
         # 生成文本
-        generated_text = generate_text(
+        generated_text, prefill_token_len, decode_token_len = generate_text(
             prompt=full_prompt,
             image=image,
             max_tokens=request.max_tokens,
@@ -298,8 +298,8 @@ async def chat_completions(request: ChatCompletionRequest):
         )
         
         # 估算 token 使用量
-        prompt_tokens = estimate_tokens(full_prompt)
-        completion_tokens = estimate_tokens(generated_text)
+        # prompt_tokens = estimate_tokens(full_prompt)
+        # completion_tokens = estimate_tokens(generated_text)
         
         # 构建响应
         response = ChatCompletionResponse(
@@ -317,9 +317,9 @@ async def chat_completions(request: ChatCompletionRequest):
                 )
             ],
             usage=Usage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=prompt_tokens + completion_tokens
+                prompt_tokens=prefill_token_len,
+                completion_tokens=decode_token_len,
+                total_tokens=prefill_token_len + decode_token_len
             )
         )
         

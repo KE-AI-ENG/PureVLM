@@ -38,7 +38,7 @@ def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, 
 
     # ===== Warmup =====
     with torch.no_grad():
-        _ = qw_model.generate(
+        _,_,_ = qw_model.generate(
             prompts=input_prompts,
             images=images,
             generated_len=8,
@@ -49,11 +49,24 @@ def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, 
     torch.cuda.synchronize()
     print("Warmup completed.")
 
+    # ===== prefill time =====
+    prefill_start_time = time.time()
+    with torch.no_grad():
+        _,_,_ = qw_model.generate(
+            prompts=input_prompts,
+            images=images,
+            generated_len=1,
+            temperature=temp,
+            do_sample=temp > 0
+        )
+    torch.cuda.synchronize()
+    prefill_time = time.time()-prefill_start_time
+
     # ===== inference =====
     start_time = time.time()
 
     with torch.no_grad():
-        generated_ids = qw_model.generate(
+        generated_ids, prefill_token_len, generated_token_len = qw_model.generate(
             prompts = input_prompts,
             images = images,
             generated_len = max_generated_len,
@@ -69,18 +82,19 @@ def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, 
     end_time = time.time()
 
     # ===== Token 数统计 =====
-    total_tokens = sum(len(ids) for ids in generated_ids)
+    # total_tokens = sum(len(ids) for ids in generated_ids)
 
     elapsed_time = end_time - start_time
-    throughput = total_tokens / elapsed_time
+    throughput = (generated_token_len-1) / (elapsed_time-prefill_time)
 
     output_text = qw_model.tokenizer.batch_decode(
         generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
     )
 
     print(f"推理耗时: {elapsed_time:.4f} 秒")
-    print(f"生成 Token 数: {total_tokens}")
-    print(f"Throughput: {throughput:.2f} tokens/sec")
+    print(f"生成 Token 数: {generated_token_len}")
+    print(f"Prefill latency: {prefill_time:.4f} 秒")
+    print(f"Decode Throughput: {throughput:.2f} tokens/sec")
 
     return output_text
 

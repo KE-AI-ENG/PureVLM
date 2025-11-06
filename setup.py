@@ -3,7 +3,7 @@ import os
 import sys
 
 def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_Capability_Minor):
-
+    """生成编译参数"""
     compile_dicts = {
         "sources": [],
         "extra_compile_args": {},
@@ -15,121 +15,79 @@ def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_
     if 750 == compile_dicts['cuda_arch_v']: #Turing
         compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
         compile_dicts['extra_compile_args'] = {
-                                            'nvcc': [
-                                                '-O3', 
-                                                "-std=c++17",
-                                                '--compiler-options', '-fPIC',
-                                                '-gencode=arch=compute_75, code=sm_75',
-                                            ]
+            'nvcc': [
+                '-O3', 
+                "-std=c++17",
+                '--compiler-options', '-fPIC',
+                '-gencode=arch=compute_75, code=sm_75',
+            ]
         }
     elif 800 == compile_dicts['cuda_arch_v'] or 860 == compile_dicts['cuda_arch_v'] or 870 == compile_dicts['cuda_arch_v']: #Ampere
         compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
         compile_dicts['extra_compile_args'] = {
-                                            'nvcc': [
-                                                '-O3', 
-                                                "-std=c++17",
-                                                '--compiler-options', '-fPIC',
-                                                '-gencode=arch=compute_80, code=sm_80',
-                                                '-gencode=arch=compute_86, code=sm_86',
-                                                '-gencode=arch=compute_87, code=sm_87'
-                                            ]
+            'nvcc': [
+                '-O3', 
+                "-std=c++17",
+                '--compiler-options', '-fPIC',
+                '-gencode=arch=compute_80, code=sm_80',
+                '-gencode=arch=compute_86, code=sm_86',
+                '-gencode=arch=compute_87, code=sm_87'
+            ]
         }
-    elif 890 == compile_dicts['cuda_arch_v']: #Ada Lovelance
+    elif 890 == compile_dicts['cuda_arch_v']: #Ada Lovelace
         compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
         compile_dicts['extra_compile_args'] = {
-                                            'nvcc': [
-                                                '-DNDEBUG',
-                                                '-O3', 
-                                                "-std=c++17",
-                                                '--compiler-options', '-fPIC',
-                                                '-gencode=arch=compute_89, code=sm_89',
-                                            ]
+            'nvcc': [
+                '-DNDEBUG',
+                '-O3', 
+                "-std=c++17",
+                '--compiler-options', '-fPIC',
+                '-gencode=arch=compute_89, code=sm_89',
+            ]
         }
     elif 900 == compile_dicts['cuda_arch_v']: #Hopper
-        # compile_dicts["sources"] = ['csrc/torch_bindings.cpp', 'csrc/gemm/hopper_w8a8_fp8.cu', 'csrc/gemm/hopper_w8a8_int8.cu', "csrc/elmwise_ops.cu"] + \
-        # [os.path.join("csrc/attention", f) for f in os.listdir("./csrc/attention") if f.endswith(".cu")]
-        # compile_dicts['extra_compile_args'] = {
-        #                                 'nvcc': [
-        #                                         "-DNDEBUG",
-        #                                         "-O3",
-        #                                         "-Xcompiler",
-        #                                         "-fPIC",
-        #                                         "-gencode=arch=compute_90,code=sm_90",
-        #                                         "-gencode=arch=compute_90a,code=sm_90a",
-        #                                         "-std=c++17",
-        #                                         "-DCUTE_USE_PACKED_TUPLE=1",
-        #                                         "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
-        #                                         "-DCUTLASS_VERSIONS_GENERATED",
-        #                                         "-DCUTLASS_TEST_LEVEL=0",
-        #                                         "-DCUTLASS_TEST_ENABLE_CACHED_RESULTS=1",
-        #                                         "-DCUTLASS_DEBUG_TRACE_LEVEL=0",
-        #                                         "--expt-relaxed-constexpr",
-        #                                         "--expt-extended-lambda",
-        #                                         "--use_fast_math",
-        #                                         "--threads=32",
-        #                                         "-U__CUDA_NO_HALF_OPERATORS__",
-        #                                         "-U__CUDA_NO_HALF_CONVERSIONS__",
-        #                                         "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
-        #                                         "-U__CUDA_NO_HALF2_OPERATORS__"
-        #                                         #add
-        #                                         # "-U__CUDA_NO_BFLOAT16_OPERATORS__",
-        #                                         # "-U__CUDA_NO_BFLOAT162_OPERATORS__",
-        #                                         # "-U__CUDA_NO_BFLOAT162_CONVERSIONS__",
-        #                                         # "--ptxas-options=-v",  # printing out number of registers
-        #                                         # '--ptxas-options=--verbose,--register-usage-level=10,--warn-on-local-memory-usage',
-        #                                         # '--ptxas-options=--warn-on-spills',
-        #                                         # '--resource-usage',
-        #                                         # '--source-in-ptx',
-        #                                         # "-lineinfo",
-        #                                 ]
-            
-        # }
         compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
         compile_dicts['extra_compile_args'] = {
-                                        'nvcc': [
-                                                "-DNDEBUG",
-                                                "-O3",
-                                                "-Xcompiler",
-                                                "-fPIC",
-                                                "-gencode=arch=compute_90,code=sm_90",
-                                                "-gencode=arch=compute_90a,code=sm_90a",
-                                                "-std=c++17"
-                                        ]
-            
+            'nvcc': [
+                "-DNDEBUG",
+                "-O3",
+                "-Xcompiler",
+                "-fPIC",
+                "-gencode=arch=compute_90,code=sm_90",
+                "-gencode=arch=compute_90a,code=sm_90a",
+                "-std=c++17"
+            ]
         }
-    
     elif 1100 == compile_dicts['cuda_arch_v']: #Blackwell
         compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
         compile_dicts['extra_compile_args'] = {
-                                            'nvcc': [
-                                                '-O3', 
-                                                "-std=c++17",
-                                                '--compiler-options', '-fPIC',
-                                                '-gencode=arch=compute_110, code=sm_110',
-                                            ]
+            'nvcc': [
+                '-O3', 
+                "-std=c++17",
+                '--compiler-options', '-fPIC',
+                '-gencode=arch=compute_110, code=sm_110',
+            ]
         }
-
     else:
         sys.exit(f"No implemented for current compute capability: {GPU_Compute_Capability_Major}.{GPU_Compute_Capability_Minor}")
 
     return compile_dicts
 
+
 try:
     import torch
 except ImportError:
-    sys.exit("Error: PyTorch not found.")
+    sys.exit("Error: PyTorch not found. Please install PyTorch first.")
 
-from setuptools import setup, find_packages
+from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
-if torch.cuda.is_available():
-    # Get the compute capability of the current CUDA device
-    major, minor = torch.cuda.get_device_capability()
-    print(f"=========CUDA Compute Capability: {major}.{minor}==========")
-else:
-    sys.exit("CUDA is not available.")
+if not torch.cuda.is_available():
+    sys.exit("Error: CUDA is not available.")
 
-#cuda library path
+major, minor = torch.cuda.get_device_capability()
+print(f"=========CUDA Compute Capability: {major}.{minor}==========")
+
 cuda_lib_path = os.environ.get('CUDA_LIB_PATH', '/usr/local/cuda/lib64')
 if not os.path.exists(cuda_lib_path):
     sys.exit(f"CUDA library path does not exist: {cuda_lib_path}")
@@ -137,54 +95,6 @@ if not os.path.exists(cuda_lib_path):
 compile_args = gen_compile_args_from_compute_cap(major, minor)
 
 setup(
-    # 基本信息
-    name='purevlm',
-    version='0.1.0',
-    author='MLSys',
-    description='PureVLM - A Vision Language Model inference engine based on Qwen3VL',
-    
-    # 项目分类
-    classifiers=[
-        'Development Status :: 3 - Alpha',
-        'Intended Audience :: Developers',
-        'Intended Audience :: Science/Research',
-        'License :: OSI Approved :: Apache Software License',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: 3.9',
-        'Programming Language :: Python :: 3.10',
-        'Programming Language :: Python :: 3.11',
-        'Topic :: Scientific/Engineering :: Artificial Intelligence',
-        'Topic :: Software Development :: Libraries :: Python Modules',
-    ],
-    
-    # 关键词
-    keywords='vision-language-model, vlm, qwen3vl, multimodal, deep-learning, pytorch',
-    
-    # Python 版本要求
-    python_requires='>=3.8',
-    
-    # 包发现
-    packages=find_packages(exclude=['tests', 'tests.*', 'examples', 'examples.*']),
-    
-    # 包数据
-    package_data={
-        'purevlm': [
-            'configs/*.json',
-            'configs/*.yaml',
-        ],
-    },
-    
-    # 命令行入口点
-    entry_points={
-        'console_scripts': [
-            'purevlm-serve=purevlm.serve:main',
-        ],
-    },
-
-    # 许可证
-    license='MIT License',
-
     ext_modules=[
         CUDAExtension(
             name='purevlm.cuda_ops',
@@ -193,9 +103,6 @@ setup(
             extra_compile_args=compile_args['extra_compile_args'],
             include_dirs=[
                 os.path.join(os.getcwd(), 'csrc/include'),
-                # os.path.join(os.getcwd(), 'csrc/include/cutlass/include'),
-                # os.path.join(os.getcwd(), 'csrc/include/cutlass/tools/util/include'),
-                # os.path.join(os.getcwd(), 'csrc/include/attention'),
             ],
             libraries=['cuda'],
             library_dirs=[cuda_lib_path],

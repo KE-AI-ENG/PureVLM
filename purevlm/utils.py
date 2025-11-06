@@ -94,12 +94,12 @@ def weight_loading(model, checkpoint, device='cuda'):
         try:
             device_tensor = tensor.to(device)
 
-            if key.endswith(".weight"):
+            if key.endswith(".weight") or key.endswith(".weight_packed") or key.endswith(".weight_shape") or key.endswith(".weight_scale"):
                 layer_path = key.rsplit(".", 1)[0]
                 layer_obj = get_obj_by_path(model, layer_path)
 
                 if isinstance(layer_obj, QLinear):
-                    layer_obj.set_weight(device_tensor)
+                    layer_obj.set_weight(key, device_tensor)
                 else:
                     layer_obj.weight = device_tensor
             else:

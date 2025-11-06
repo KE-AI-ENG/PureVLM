@@ -10,6 +10,7 @@ from transformers import AutoTokenizer
 
 from purevlm.model.config import Qwen3VLConfig, Qwen3VLTextConfig, Qwen3VLVisionConfig
 from purevlm.model.qwen3_vl import Qwen3VLForCausalLM
+from purevlm.layer.quantization.quant_config import QuantizationConfig
 
 from purevlm.utils import weight_loading
 
@@ -144,11 +145,13 @@ def create_model(
             # 根据配置字典创建配置对象
             vision_config = Qwen3VLVisionConfig(**config_dict.get('vision_config', {}))
             text_config = Qwen3VLTextConfig(**config_dict.get('text_config', {}))
+            quantization_config = QuantizationConfig(**config_dict.get('quantization_config', {}))
             config = Qwen3VLConfig(
                 vision_config=vision_config,
                 text_config=text_config,
+                quantization_config=quantization_config,
                 **{k: v for k, v in config_dict.items() 
-                   if k not in ['vision_config', 'text_config']}
+                   if k not in ['vision_config', 'text_config', 'quantization_config']}
             )
             print(f"从 {config_path} 加载配置成功")
         except Exception as e:

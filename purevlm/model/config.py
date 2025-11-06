@@ -88,6 +88,8 @@ class Qwen3VLConfig:
         self,
         text_config=None,
         vision_config=None,
+        quantization_config=None,
+        dtype = "bfloat16",
         architectures = ["Qwen3VLForConditionalGeneration"],
         model_type = "qwen3_vl",
         image_token_id=151655,
@@ -100,6 +102,7 @@ class Qwen3VLConfig:
         self.vision_config = vision_config
 
         self.text_config = text_config
+        self.quantization_config = quantization_config
 
         self.image_token_id = image_token_id
         self.video_token_id = video_token_id

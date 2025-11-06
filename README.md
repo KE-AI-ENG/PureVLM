@@ -2,7 +2,7 @@ A pure VLM model inference engine.
 
 ## Install
 
-`pip install -v -e .`
+`pip install -v -e . -i https://pypi.tuna.tsinghua.edu.cn/simple --no-build-isolation --no-deps`
 
 ## Usage
 

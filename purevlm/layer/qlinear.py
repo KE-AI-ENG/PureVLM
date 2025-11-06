@@ -89,7 +89,7 @@ class QLinear:
 
         # Set weight based on key and apply post-processing if needed
         if weight_key.endswith(".weight"):
-            if self.quant_method is None:
+            if self.quant_method is None or self.quant_ignore:
                 if weight.shape != (self.out_features, self.in_features):
                     raise ValueError(
                         f"Weight shape {weight.shape} does not match expected shape "

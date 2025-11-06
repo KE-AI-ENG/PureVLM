@@ -12,12 +12,12 @@ from purevlm.model.config import Qwen3VLVisionConfig
 
 
 class VisionMLP:
-    def __init__(self, config):
+    def __init__(self, config, quant_config=None) -> None:
         super().__init__()
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
-        self.linear_fc1 = L.QLinear(self.hidden_size, self.intermediate_size, bias=True)
-        self.linear_fc2 = L.QLinear(self.intermediate_size, self.hidden_size, bias=True)
+        self.linear_fc1 = L.QLinear(self.hidden_size, self.intermediate_size, bias=True, quant_config=quant_config)
+        self.linear_fc2 = L.QLinear(self.intermediate_size, self.hidden_size, bias=True, quant_config=quant_config)
 
     def __call__(self, hidden_state):
         return self.linear_fc2(nn.functional.gelu(self.linear_fc1(hidden_state), approximate="tanh"))
@@ -57,13 +57,13 @@ class VisionRotaryEmbedding:
 
 
 class VisionPatchMerger:
-    def __init__(self, config: Qwen3VLVisionConfig, use_postshuffle_norm=False) -> None:
+    def __init__(self, config: Qwen3VLVisionConfig, use_postshuffle_norm=False, quant_config=None) -> None:
         super().__init__()
         self.hidden_size = config.hidden_size * (config.spatial_merge_size**2)
         self.use_postshuffle_norm = use_postshuffle_norm
         self.norm = L.LayerNorm(self.hidden_size if use_postshuffle_norm else config.hidden_size, eps=1e-6)
-        self.linear_fc1 = L.QLinear(self.hidden_size, self.hidden_size)
-        self.linear_fc2 = L.QLinear(self.hidden_size, config.out_hidden_size)
+        self.linear_fc1 = L.QLinear(self.hidden_size, self.hidden_size, quant_config=quant_config)
+        self.linear_fc2 = L.QLinear(self.hidden_size, config.out_hidden_size, quant_config=quant_config)
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         x = self.norm(x.view(-1, self.hidden_size) if self.use_postshuffle_norm else x).view(-1, self.hidden_size)
@@ -93,14 +93,14 @@ def apply_rotary_pos_emb_vision(
 
 
 class VisionAttention:
-    def __init__(self, config: Qwen3VLVisionConfig) -> None:
+    def __init__(self, config: Qwen3VLVisionConfig, quant_config=None) -> None:
         super().__init__()
         self.dim = config.hidden_size
         self.num_heads = config.num_heads
         self.head_dim = self.dim // self.num_heads
         self.num_key_value_groups = 1  # needed for eager attention
-        self.qkv = L.QLinear(self.dim, self.dim * 3, bias=True)
-        self.proj = L.QLinear(self.dim, self.dim)
+        self.qkv = L.QLinear(self.dim, self.dim * 3, bias=True, quant_config=quant_config)
+        self.proj = L.QLinear(self.dim, self.dim, quant_config=quant_config)
         self.scaling = self.head_dim**-0.5
         self.config = config
         self.attention_dropout = 0.0
@@ -139,12 +139,12 @@ class VisionAttention:
 
 
 class VisionBlock:
-    def __init__(self, config) -> None:
+    def __init__(self, config, quant_config=None) -> None:
         super().__init__()
         self.norm1 = L.LayerNorm(config.hidden_size, eps=1e-6)
         self.norm2 = L.LayerNorm(config.hidden_size, eps=1e-6)
-        self.attn = VisionAttention(config=config)
-        self.mlp = VisionMLP(config=config)
+        self.attn = VisionAttention(config=config, quant_config=quant_config)
+        self.mlp = VisionMLP(config=config, quant_config=quant_config)
 
     def __call__(
         self,
@@ -165,7 +165,7 @@ class VisionBlock:
 
 class VisionModel:
 
-    def __init__(self, config, device='cuda') -> None:
+    def __init__(self, config, device='cuda', quant_config=None) -> None:
         super().__init__()
         self.spatial_merge_size = config.spatial_merge_size
         self.patch_size = config.patch_size
@@ -183,10 +183,11 @@ class VisionModel:
         head_dim = config.hidden_size // config.num_heads
         self.rotary_pos_emb = VisionRotaryEmbedding(head_dim // 2, device=device)
 
-        self.blocks = [VisionBlock(config) for _ in range(config.depth)]
+        self.blocks = [VisionBlock(config, quant_config=quant_config) for _ in range(config.depth)]
         self.merger = VisionPatchMerger(
             config=config,
             use_postshuffle_norm=False,
+            quant_config=quant_config
         )
 
         self.deepstack_visual_indexes = config.deepstack_visual_indexes
@@ -194,6 +195,7 @@ class VisionModel:
                 VisionPatchMerger(
                     config=config,
                     use_postshuffle_norm=True,
+                    quant_config=quant_config
                 )
                 for _ in range(len(config.deepstack_visual_indexes))
             ]

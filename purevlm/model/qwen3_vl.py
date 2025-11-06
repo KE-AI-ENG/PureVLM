@@ -21,7 +21,7 @@ class Qwen3VLModel:
     """Qwen3-VL主模型"""
     def __init__(self, config, device='cuda'):
         super().__init__()
-        self.visual = VisionModel(config.vision_config, device=device)
+        self.visual = VisionModel(config.vision_config, device=device, quant_config=config.quantization_config)
         self.language_model = TextModel(config.text_config, quant_config=config.quantization_config)
         self.rope_deltas = None  # cache rope_deltas here
         self.config = config
@@ -110,7 +110,7 @@ class Qwen3VLForCausalLM:
     def __init__(self, config, tokenizer=None, batch_size = 1, max_length = 4096, device='cuda', dtype=torch.bfloat16):
         super().__init__()
         self.model = Qwen3VLModel(config, device=device)
-        self.lm_head = L.QLinear(config.text_config.hidden_size, config.text_config.vocab_size, bias=False)
+        self.lm_head = L.QLinear(config.text_config.hidden_size, config.text_config.vocab_size, bias=False, quant_config=config.quantization_config)
         self.kv_cache = KVCache(config.text_config)
 
         self.kv_cache.allocate(batch_size=batch_size, max_len=max_length)

@@ -23,16 +23,17 @@ def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_
             ]
         }
     elif 800 == compile_dicts['cuda_arch_v'] or 860 == compile_dicts['cuda_arch_v'] or 870 == compile_dicts['cuda_arch_v']: #Ampere
-        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
+        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"] + [
+            "csrc/gptq_marlin/"+filename for filename in os.listdir("csrc/gptq_marlin") if filename.split(".")[-1]=="cu"]
         compile_dicts['extra_compile_args'] = {
-            'nvcc': [
-                '-O3', 
-                "-std=c++17",
-                '--compiler-options', '-fPIC',
-                '-gencode=arch=compute_80, code=sm_80',
-                '-gencode=arch=compute_86, code=sm_86',
-                '-gencode=arch=compute_87, code=sm_87'
-            ]
+                                            'nvcc': [
+                                                # "-O3",    # can't use for marlin 
+                                                "-std=c++17",
+                                                '--compiler-options', '-fPIC',
+                                                '-gencode=arch=compute_80, code=sm_80',
+                                                '-gencode=arch=compute_86, code=sm_86',
+                                                '-gencode=arch=compute_87, code=sm_87'
+                                            ]
         }
     elif 890 == compile_dicts['cuda_arch_v']: #Ada Lovelace
         compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
@@ -46,27 +47,30 @@ def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_
             ]
         }
     elif 900 == compile_dicts['cuda_arch_v']: #Hopper
-        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
+        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"] + [
+            "csrc/gptq_marlin/"+filename for filename in os.listdir("csrc/gptq_marlin") if filename.split(".")[-1]=="cu"]
         compile_dicts['extra_compile_args'] = {
-            'nvcc': [
-                "-DNDEBUG",
-                "-O3",
-                "-Xcompiler",
-                "-fPIC",
-                "-gencode=arch=compute_90,code=sm_90",
-                "-gencode=arch=compute_90a,code=sm_90a",
-                "-std=c++17"
-            ]
+                                        'nvcc': [
+                                                "-DNDEBUG",
+                                                # "-O3",    # can't use for marlin 
+                                                "-Xcompiler",
+                                                "-fPIC",
+                                                # "-gencode=arch=compute_90,code=sm_90",
+                                                "-gencode=arch=compute_90a,code=sm_90a",
+                                                "-std=c++17",
+                                        ]
+            
         }
     elif 1100 == compile_dicts['cuda_arch_v']: #Blackwell
-        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
+        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"] + [
+            "csrc/gptq_marlin/"+filename for filename in os.listdir("csrc/gptq_marlin") if filename.split(".")[-1]=="cu"]
         compile_dicts['extra_compile_args'] = {
-            'nvcc': [
-                '-O3', 
-                "-std=c++17",
-                '--compiler-options', '-fPIC',
-                '-gencode=arch=compute_110, code=sm_110',
-            ]
+                                            'nvcc': [
+                                                # "-O3",    # can't use for marlin 
+                                                "-std=c++17",
+                                                '--compiler-options', '-fPIC',
+                                                '-gencode=arch=compute_110, code=sm_110',
+                                            ]
         }
     else:
         sys.exit(f"No implemented for current compute capability: {GPU_Compute_Capability_Major}.{GPU_Compute_Capability_Minor}")
@@ -103,6 +107,10 @@ setup(
             extra_compile_args=compile_args['extra_compile_args'],
             include_dirs=[
                 os.path.join(os.getcwd(), 'csrc/include'),
+                os.path.join(os.getcwd(), 'csrc/gptq_marlin'),
+                # os.path.join(os.getcwd(), 'csrc/include/cutlass/include'),
+                # os.path.join(os.getcwd(), 'csrc/include/cutlass/tools/util/include'),
+                # os.path.join(os.getcwd(), 'csrc/include/attention'),
             ],
             libraries=['cuda'],
             library_dirs=[cuda_lib_path],

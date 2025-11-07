@@ -1,7 +1,7 @@
 #pragma once
 #include "vectorization.cuh"
 
-namespace fastdm {
+namespace purevlm {
 
 template <int VEC_SIZE, typename InT, typename OutT, typename ScaOp>
 struct DefaultVecOp {
@@ -174,4 +174,4 @@ __device__ __forceinline__ void vectorize_read_with_alignment(
                                           std::forward<ScaOp>(scalar_op));
 }
 
-}  // namespace fastdm
+}  // namespace purevlm

@@ -38,7 +38,7 @@
 //   return reinterpret_cast<const int8_t&>(dst);
 // }
 
-namespace fastdm {
+namespace purevlm {
 
 template <typename scalar_t>
 __global__ void rms_norm_kernel(
@@ -86,7 +86,7 @@ __global__ void rms_norm_kernel(
     float x = static_cast<float>(val);
     variance += x * x;
   };
-  fastdm::vectorize_read_with_alignment<VEC_SIZE>(
+  purevlm::vectorize_read_with_alignment<VEC_SIZE>(
       input_row, hidden_size, threadIdx.x, blockDim.x, vec_op, scalar_op);
 
   using BlockReduce = cub::BlockReduce<float, 1024>;
@@ -198,24 +198,12 @@ __global__ void rotary_embedding_kernel(
       token_idx, query_stride, key_stride, head_stride);
 }
 
-}  // namespace fastdm
+}  // namespace purevlm
 
 void rms_norm(torch::Tensor& out,     // [..., hidden_size]
               torch::Tensor& input,   // [..., hidden_size]
               torch::Tensor& weight,  // [hidden_size]
               double epsilon) {
-  // int hidden_size = input.size(-1);
-  // int num_tokens = input.numel() / hidden_size;
-
-  // dim3 grid(num_tokens);
-  // dim3 block(std::min(hidden_size, 1024));
-  // const at::cuda::OptionalCUDAGuard device_guard(device_of(input));
-  // const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-  // FASTDM_DISPATCH_FLOATING_TYPES(input.scalar_type(), "rms_norm_kernel", [&] {
-  //   fastdm::rms_norm_kernel<scalar_t><<<grid, block, 0, stream>>>(
-  //       out.data_ptr<scalar_t>(), input.data_ptr<scalar_t>(),
-  //       weight.data_ptr<scalar_t>(), epsilon, num_tokens, hidden_size);
-  // });
   int hidden_size = input.size(-1);
 
   // We cannot just use `input.stride(-2)` if the tensor is not row-major.
@@ -230,9 +218,9 @@ void rms_norm(torch::Tensor& out,     // [..., hidden_size]
   dim3 block(std::min(hidden_size, 1024));
   const at::cuda::OptionalCUDAGuard device_guard(device_of(input_view));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-  FASTDM_DISPATCH_FLOATING_TYPES(
+  PUREVLM_DISPATCH_FLOATING_TYPES(
       input_view.scalar_type(), "rms_norm_kernel", [&] {
-        fastdm::rms_norm_kernel<scalar_t><<<grid, block, 0, stream>>>(
+        purevlm::rms_norm_kernel<scalar_t><<<grid, block, 0, stream>>>(
             out.data_ptr<scalar_t>(), input_view.data_ptr<scalar_t>(),
             input_stride, weight.data_ptr<scalar_t>(), epsilon, num_tokens,
             hidden_size);
@@ -303,15 +291,15 @@ void rotary_embedding(
   dim3 block(std::min<int64_t>(num_heads * rot_dim / 2, 512));
   const at::cuda::OptionalCUDAGuard device_guard(device_of(query));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-  FASTDM_DISPATCH_FLOATING_TYPES(query.scalar_type(), "rotary_embedding", [&] {
+  PUREVLM_DISPATCH_FLOATING_TYPES(query.scalar_type(), "rotary_embedding", [&] {
     if (is_neox) {
-      fastdm::rotary_embedding_kernel<scalar_t, true><<<grid, block, 0, stream>>>(
+      purevlm::rotary_embedding_kernel<scalar_t, true><<<grid, block, 0, stream>>>(
           positions.data_ptr<int64_t>(), query.data_ptr<scalar_t>(),
           key.has_value() ? key->data_ptr<scalar_t>() : nullptr,
           cos_sin_cache.data_ptr<scalar_t>(), rot_dim, query_stride, key_stride,
           head_stride, num_heads, num_kv_heads, head_size);
     } else {
-      fastdm::rotary_embedding_kernel<scalar_t, false>
+      purevlm::rotary_embedding_kernel<scalar_t, false>
           <<<grid, block, 0, stream>>>(
               positions.data_ptr<int64_t>(), query.data_ptr<scalar_t>(),
               key.has_value() ? key->data_ptr<scalar_t>() : nullptr,

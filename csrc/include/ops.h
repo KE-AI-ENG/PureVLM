@@ -4,6 +4,7 @@
 #include <torch/library.h>
 
 #include <vector>
+#include "scalar_type.hpp"
 
 ////////////////elementwise ops begin/////////////////
 // void int8_quant(torch::Tensor& out,
@@ -12,6 +13,7 @@
 // void fp8_quant(
 //     torch::Tensor& out, torch::Tensor const& input, torch::Tensor& scale,
 //     c10::optional<torch::Tensor> const& scale_ub);
+
 void rms_norm(torch::Tensor& out,
               torch::Tensor& input,
               torch::Tensor& weight,
@@ -33,6 +35,24 @@ void rotary_embedding(
     torch::Tensor& cos_sin_cache,  // [max_position, rot_dim]
     bool is_neox);
 // /////////////////////////////elementwise ops end/////////////////////////////
+
+
+// when __CUDA_ARCH__ >= 800, marlin can be used
+torch::Tensor gptq_marlin_repack(torch::Tensor& b_q_weight, torch::Tensor& perm,
+                                 int64_t size_k, int64_t size_n,
+                                 int64_t num_bits);
+
+torch::Tensor gptq_marlin_gemm(
+    torch::Tensor& a, std::optional<torch::Tensor> c_or_none,
+    torch::Tensor& b_q_weight,
+    std::optional<torch::Tensor> const& b_bias_or_none, torch::Tensor& b_scales,
+    std::optional<torch::Tensor> const& global_scale_or_none,
+    std::optional<torch::Tensor> const& b_zeros_or_none,
+    std::optional<torch::Tensor> const& g_idx_or_none,
+    std::optional<torch::Tensor> const& perm_or_none, torch::Tensor& workspace,
+    purevlm::ScalarTypeId const& b_q_type_id, int64_t size_m, int64_t size_n,
+    int64_t size_k, bool is_k_full, bool use_atomic_add, bool use_fp32_reduce,
+    bool is_zp_float);
 
 
 // #if (defined __CUDA_ARCH__ && __CUDA_ARCH__ >= 900 && __CUDA_ARCH__ < 1000) || \

@@ -106,6 +106,7 @@ def create_model(
     torch_dtype=torch.bfloat16,
     batch_size = 1,
     max_seq_len = 4096,
+    using_online_quant = False
 ):
     """
     创建模型, 并从包含safetensors文件的checkpoints目录加载权重
@@ -116,6 +117,7 @@ def create_model(
         torch_dtype: 数据类型
         batch_size: 批处理大小
         max_seq_len: 输入+输出最大序列长度, 用于初始化kvcache
+        using_online_quant: 在线量化原始模型, 默认为False
     
     Returns:
         model: 加载完成的模型
@@ -145,7 +147,14 @@ def create_model(
             # 根据配置字典创建配置对象
             vision_config = Qwen3VLVisionConfig(**config_dict.get('vision_config', {}))
             text_config = Qwen3VLTextConfig(**config_dict.get('text_config', {}))
-            quantization_config = QuantizationConfig(**config_dict.get('quantization_config', {}))
+            if not using_online_quant:
+                quantization_config = QuantizationConfig(**config_dict.get('quantization_config', {}))
+            else:
+                project_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                onl_q_config_path = os.path.join(project_path, "examples/online_quantization_marlin.json")
+                with open(onl_q_config_path, 'r', encoding='utf-8') as f:
+                    onl_q_config_dict = json.load(f)
+                quantization_config = QuantizationConfig(**onl_q_config_dict.get('quantization_config', {}))
             config = Qwen3VLConfig(
                 vision_config=vision_config,
                 text_config=text_config,

@@ -1,13 +1,9 @@
 from typing import Optional
 import torch
 
-#TODO remove vllm dependency later
-try:
-    from vllm import _custom_ops as ops
-    from vllm.scalar_type import scalar_types
-except ImportError:
-    print("Warning: vllm is not installed. Compressed-tensors quantization will not work.")
-
+from purevlm.layer.quantization.scalar_type import scalar_types
+from purevlm.layer.quantization.quant_gemm_kernel import gptq_marlin_gemm, gptq_marlin_repack
+from purevlm.layer.quantization.online_quant_preprocess import preprocess
 from purevlm.layer.quantization.quant_config import QuantizationConfig
 from purevlm.layer.quantization.utils import marlin_make_workspace_new, get_scale_perms, marlin_make_empty
 
@@ -40,6 +36,14 @@ class QLinear:
             self._group_config = None
             if quant_config and quant_config.config_groups and 'group_0' in quant_config.config_groups:
                 self._group_config = quant_config.config_groups['group_0']['weights']
+        
+        elif self.quant_method == "online_marlin":
+            self.weight_quant = None
+            self.weight_scale = None
+            self.w_zp = None
+            self.g_idx = None
+            self.sort_indices = None
+            self.workspace = None
 
     @property
     def quant_ignore(self) -> bool:
@@ -97,7 +101,7 @@ class QLinear:
                     )
                 self.weight = weight
             else:
-                pass #TODO support online quantization later
+                self.online_marlin_weight_preprocess(weight, self.quant_config.config_groups["group_size"])
 
         elif weight_key.endswith(".weight_packed"):
             # For compressed-tensors, repack
@@ -139,7 +143,7 @@ class QLinear:
         self.g_idx = marlin_make_empty(device)
         self.workspace = marlin_make_workspace_new(device)
         
-        x = ops.gptq_marlin_repack(packed_weight.t().contiguous(),
+        x = gptq_marlin_repack(packed_weight.t().contiguous(),
                                         perm=self.g_idx_sort_indices,
                                         size_k=self.in_features,
                                         size_n=self.out_features,
@@ -158,6 +162,10 @@ class QLinear:
 
         return s
 
+    def online_marlin_weight_preprocess(self, weight, group_size):
+        self.weight_quant, self.weight_scale, self.w_zp, self.g_idx, self.sort_indices, self.workspace = \
+            preprocess(weight, self.out_features, group_size=group_size)
+
     def __call__(self, input):
         if self.quant_method is None or self.quant_ignore:
             return torch.nn.functional.linear(input, self.weight, self.bias)
@@ -173,6 +181,22 @@ class QLinear:
                 wtype=scalar_types.uint4b8,
                 output_size_per_partition=self.out_features,
                 input_size_per_partition=self.in_features,
+                is_k_full=True,
+                bias=self.bias,
+                use_fp32_reduce=True
+            )
+        elif self.quant_method == "online_marlin":
+            return self.apply_gptq_marlin_linear(
+                input,
+                self.weight_quant,
+                self.weight_scale,
+                self.w_zp,
+                self.g_idx,
+                self.sort_indices,
+                workspace=self.workspace,
+                wtype=scalar_types.uint4,
+                output_size_per_partition=self.out_features,    # N
+                input_size_per_partition=self.in_features,      # K
                 is_k_full=True,
                 bias=self.bias,
                 use_fp32_reduce=True
@@ -198,7 +222,7 @@ class QLinear:
 
         use_atomic_add = False
 
-        output = ops.gptq_marlin_gemm(reshaped_x,
+        output = gptq_marlin_gemm(reshaped_x,
                                     None,
                                     weight,
                                     bias,

@@ -186,16 +186,24 @@
 //         version_num);
 //   }
 
-// }
+// } 
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+    // elementwise
     // m.def("fp8_quant_", &fp8_quant, "dynamic per token scaled fp8 quant");
     // m.def("int8_quant_", &int8_quant, "dynamic per token scaled int8 quant");
     m.def("rms_norm_", &rms_norm, "rms norm");
     m.def("rotary_emb_", &rotary_embedding, "rotary embedding");
 
+    // gemm
     // m.def("fp8_scaled_mm_", &fp8_scaled_mm, "CUTLASS fp8 Symmetric Scaled Matrix Multiplication");
     // m.def("int8_scaled_mm_", &int8_scaled_mm, "CUTLASS int8 ASymmetric Scaled Matrix Multiplication");
+    
+    // m.def("awq_marlin_repack", &awq_marlin_repack, "awq_marlin_repack");
+    // m.def("awq_marlin_repack_meta", &awq_marlin_repack_meta, "awq_marlin_repack_meta");
+    // m.def("gptq_marlin_gemm", &gptq_marlin_gemm, "GPTQ Marlin GEMM operation");
+    // m.def("gptq_marlin_repack", &gptq_marlin_repack, "gptq_marlin_repack");
+    // m.def("gptq_marlin_repack_meta", &gptq_marlin_repack_meta, "gptq_marlin_repack_meta");
 
     // m.def("flash_attention_fp8_fwd_", &flash_attention_fp8_fwd, "Flash Attention fp8 forward");
 }

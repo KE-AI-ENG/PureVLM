@@ -84,16 +84,19 @@ def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_
         #                                 ]
             
         # }
-        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
+        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"] 
+        # + [
+        #     "csrc/gptq_marlin/"+filename for filename in os.listdir("csrc/gptq_marlin") if filename.split(".")[-1]=="cu"
+        # ]
         compile_dicts['extra_compile_args'] = {
                                         'nvcc': [
                                                 "-DNDEBUG",
-                                                "-O3",
+                                                # "-O3",    # can't use for marlin 
                                                 "-Xcompiler",
                                                 "-fPIC",
-                                                "-gencode=arch=compute_90,code=sm_90",
+                                                # "-gencode=arch=compute_90,code=sm_90",
                                                 "-gencode=arch=compute_90a,code=sm_90a",
-                                                "-std=c++17"
+                                                "-std=c++17",
                                         ]
             
         }
@@ -193,6 +196,7 @@ setup(
             extra_compile_args=compile_args['extra_compile_args'],
             include_dirs=[
                 os.path.join(os.getcwd(), 'csrc/include'),
+                os.path.join(os.getcwd(), 'csrc/gptq_marlin'),
                 # os.path.join(os.getcwd(), 'csrc/include/cutlass/include'),
                 # os.path.join(os.getcwd(), 'csrc/include/cutlass/tools/util/include'),
                 # os.path.join(os.getcwd(), 'csrc/include/attention'),
@@ -202,6 +206,7 @@ setup(
         )
     ],
     cmdclass={
-        'build_ext': BuildExtension
+        'build_ext': BuildExtension,
+        # 'build_ext': BuildExtension.with_options(use_ninja=False)
     }
 )

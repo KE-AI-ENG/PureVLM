@@ -4,6 +4,7 @@
 #include <torch/library.h>
 
 #include <vector>
+#include "core/scalar_type.hpp"
 
 ////////////////elementwise ops begin/////////////////
 // void int8_quant(torch::Tensor& out,
@@ -33,6 +34,35 @@ void rotary_embedding(
     torch::Tensor& cos_sin_cache,  // [max_position, rot_dim]
     bool is_neox);
 // /////////////////////////////elementwise ops end/////////////////////////////
+
+
+
+// torch::Tensor gptq_marlin_repack(torch::Tensor& b_q_weight, torch::Tensor& perm,
+//                                  int64_t size_k, int64_t size_n,
+//                                  int64_t num_bits);
+
+// torch::Tensor gptq_marlin_repack_meta(torch::Tensor& b_q_weight,
+//                                       torch::Tensor& perm, c10::SymInt size_k,
+//                                       c10::SymInt size_n, int64_t num_bits);
+
+// torch::Tensor gptq_marlin_gemm(
+//     torch::Tensor& a, std::optional<torch::Tensor> c_or_none,
+//     torch::Tensor& b_q_weight,
+//     std::optional<torch::Tensor> const& b_bias_or_none, torch::Tensor& b_scales,
+//     std::optional<torch::Tensor> const& global_scale_or_none,
+//     std::optional<torch::Tensor> const& b_zeros_or_none,
+//     std::optional<torch::Tensor> const& g_idx_or_none,
+//     std::optional<torch::Tensor> const& perm_or_none, torch::Tensor& workspace,
+//     vllm::ScalarTypeId const& b_q_type_id, int64_t size_m, int64_t size_n,
+//     int64_t size_k, bool is_k_full, bool use_atomic_add, bool use_fp32_reduce,
+//     bool is_zp_float);
+
+// torch::Tensor awq_marlin_repack(torch::Tensor& b_q_weight, int64_t size_k,
+//                                 int64_t size_n, int64_t num_bits);
+
+// torch::Tensor awq_marlin_repack_meta(torch::Tensor& b_q_weight,
+//                                      c10::SymInt size_k, c10::SymInt size_n,
+//                                      int64_t num_bits);
 
 
 // #if (defined __CUDA_ARCH__ && __CUDA_ARCH__ >= 900 && __CUDA_ARCH__ < 1000) || \

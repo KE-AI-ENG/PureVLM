@@ -23,10 +23,11 @@ def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_
                                             ]
         }
     elif 800 == compile_dicts['cuda_arch_v'] or 860 == compile_dicts['cuda_arch_v'] or 870 == compile_dicts['cuda_arch_v']: #Ampere
-        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
+        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"] + [
+            "csrc/gptq_marlin/"+filename for filename in os.listdir("csrc/gptq_marlin") if filename.split(".")[-1]=="cu"]
         compile_dicts['extra_compile_args'] = {
                                             'nvcc': [
-                                                '-O3', 
+                                                # "-O3",    # can't use for marlin 
                                                 "-std=c++17",
                                                 '--compiler-options', '-fPIC',
                                                 '-gencode=arch=compute_80, code=sm_80',
@@ -46,48 +47,8 @@ def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_
                                             ]
         }
     elif 900 == compile_dicts['cuda_arch_v']: #Hopper
-        # compile_dicts["sources"] = ['csrc/torch_bindings.cpp', 'csrc/gemm/hopper_w8a8_fp8.cu', 'csrc/gemm/hopper_w8a8_int8.cu', "csrc/elmwise_ops.cu"] + \
-        # [os.path.join("csrc/attention", f) for f in os.listdir("./csrc/attention") if f.endswith(".cu")]
-        # compile_dicts['extra_compile_args'] = {
-        #                                 'nvcc': [
-        #                                         "-DNDEBUG",
-        #                                         "-O3",
-        #                                         "-Xcompiler",
-        #                                         "-fPIC",
-        #                                         "-gencode=arch=compute_90,code=sm_90",
-        #                                         "-gencode=arch=compute_90a,code=sm_90a",
-        #                                         "-std=c++17",
-        #                                         "-DCUTE_USE_PACKED_TUPLE=1",
-        #                                         "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
-        #                                         "-DCUTLASS_VERSIONS_GENERATED",
-        #                                         "-DCUTLASS_TEST_LEVEL=0",
-        #                                         "-DCUTLASS_TEST_ENABLE_CACHED_RESULTS=1",
-        #                                         "-DCUTLASS_DEBUG_TRACE_LEVEL=0",
-        #                                         "--expt-relaxed-constexpr",
-        #                                         "--expt-extended-lambda",
-        #                                         "--use_fast_math",
-        #                                         "--threads=32",
-        #                                         "-U__CUDA_NO_HALF_OPERATORS__",
-        #                                         "-U__CUDA_NO_HALF_CONVERSIONS__",
-        #                                         "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
-        #                                         "-U__CUDA_NO_HALF2_OPERATORS__"
-        #                                         #add
-        #                                         # "-U__CUDA_NO_BFLOAT16_OPERATORS__",
-        #                                         # "-U__CUDA_NO_BFLOAT162_OPERATORS__",
-        #                                         # "-U__CUDA_NO_BFLOAT162_CONVERSIONS__",
-        #                                         # "--ptxas-options=-v",  # printing out number of registers
-        #                                         # '--ptxas-options=--verbose,--register-usage-level=10,--warn-on-local-memory-usage',
-        #                                         # '--ptxas-options=--warn-on-spills',
-        #                                         # '--resource-usage',
-        #                                         # '--source-in-ptx',
-        #                                         # "-lineinfo",
-        #                                 ]
-            
-        # }
-        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"] 
-        # + [
-        #     "csrc/gptq_marlin/"+filename for filename in os.listdir("csrc/gptq_marlin") if filename.split(".")[-1]=="cu"
-        # ]
+        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"] + [
+            "csrc/gptq_marlin/"+filename for filename in os.listdir("csrc/gptq_marlin") if filename.split(".")[-1]=="cu"]
         compile_dicts['extra_compile_args'] = {
                                         'nvcc': [
                                                 "-DNDEBUG",
@@ -102,10 +63,11 @@ def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_
         }
     
     elif 1100 == compile_dicts['cuda_arch_v']: #Blackwell
-        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
+        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"] + [
+            "csrc/gptq_marlin/"+filename for filename in os.listdir("csrc/gptq_marlin") if filename.split(".")[-1]=="cu"]
         compile_dicts['extra_compile_args'] = {
                                             'nvcc': [
-                                                '-O3', 
+                                                # "-O3",    # can't use for marlin 
                                                 "-std=c++17",
                                                 '--compiler-options', '-fPIC',
                                                 '-gencode=arch=compute_110, code=sm_110',
@@ -206,7 +168,6 @@ setup(
         )
     ],
     cmdclass={
-        'build_ext': BuildExtension,
-        # 'build_ext': BuildExtension.with_options(use_ninja=False)
+        'build_ext': BuildExtension
     }
 )

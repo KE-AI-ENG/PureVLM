@@ -198,12 +198,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // gemm
     // m.def("fp8_scaled_mm_", &fp8_scaled_mm, "CUTLASS fp8 Symmetric Scaled Matrix Multiplication");
     // m.def("int8_scaled_mm_", &int8_scaled_mm, "CUTLASS int8 ASymmetric Scaled Matrix Multiplication");
-    
-    // m.def("awq_marlin_repack", &awq_marlin_repack, "awq_marlin_repack");
-    // m.def("awq_marlin_repack_meta", &awq_marlin_repack_meta, "awq_marlin_repack_meta");
-    // m.def("gptq_marlin_gemm", &gptq_marlin_gemm, "GPTQ Marlin GEMM operation");
-    // m.def("gptq_marlin_repack", &gptq_marlin_repack, "gptq_marlin_repack");
-    // m.def("gptq_marlin_repack_meta", &gptq_marlin_repack_meta, "gptq_marlin_repack_meta");
 
+    m.def("gptq_marlin_gemm", &gptq_marlin_gemm, "GPTQ Marlin GEMM operation");
+    m.def("gptq_marlin_repack", &gptq_marlin_repack, "gptq_marlin_repack");
+
+    // attention
     // m.def("flash_attention_fp8_fwd_", &flash_attention_fp8_fwd, "Flash Attention fp8 forward");
 }

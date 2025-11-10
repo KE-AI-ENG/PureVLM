@@ -70,6 +70,7 @@ def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_
                                                 "-std=c++17",
                                                 '--compiler-options', '-fPIC',
                                                 '-gencode=arch=compute_110, code=sm_110',
+                                                "-static-global-template-stub=false",
                                             ]
         }
     else:

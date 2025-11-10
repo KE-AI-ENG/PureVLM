@@ -260,15 +260,96 @@ class TextMLP:
         down_proj = self.down_proj(nn.functional.silu(self.gate_proj(x)) * self.up_proj(x))
         return down_proj
 
+class Qwen3VLMoeTextExperts:
+    def __init__(self, config, quant_config=None):
+        super().__init__()
+        self.num_experts = config.num_experts
+        self.intermediate_size = config.moe_intermediate_size
+        self.hidden_size = config.hidden_size
+        self.expert_dim = self.intermediate_size
+
+        # TODO support moe fused kernel, support quantization
+        # self.gate_up_proj = L.QLinear(self.hidden_size, 2 * self.expert_dim * self.num_experts, bias=False, quant_config=quant_config)
+        # self.down_proj = L.QLinear(self.expert_dim, self.hidden_size * self.num_experts, bias=False, quant_config=quant_config)
+
+        self.gate_up_proj = nn.Parameter(torch.empty(self.num_experts, self.hidden_size, 2 * self.expert_dim))
+        self.down_proj = nn.Parameter(torch.empty((self.num_experts, self.expert_dim, self.hidden_size)))
+
+    def __call__(
+        self, hidden_states: torch.Tensor, routing_weights: torch.Tensor, router_indices: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        When training it is more efficient to just loop over the experts and compute the output for each expert
+        as otherwise the memory would explode.
+
+        For inference we can sacrifice some memory and compute the output for all experts at once. By repeating the inputs.
+
+        Args:
+            hidden_states (torch.Tensor): (batch_size * token_num, hidden_size)
+            routing_weights (torch.Tensor): (batch_size * token_num, num_experts)
+            router_indices (torch.Tensor): (batch_size * token_num, top_k)
+        Returns:
+            torch.Tensor
+        """
+        batch_size = hidden_states.shape[0]
+        hidden_states = hidden_states.reshape(-1, self.hidden_size)  # (num_tokens, hidden_size)
+        hidden_states = hidden_states.repeat(self.num_experts, 1)
+        hidden_states = hidden_states.view(self.num_experts, -1, self.hidden_size)
+        # gate_up = torch.bmm(hidden_states, self.gate_up_proj.weight.view(self.num_experts, self.hidden_size, 2 * self.expert_dim))
+        gate_up = torch.bmm(hidden_states, self.gate_up_proj)
+        gate, up = gate_up.chunk(2, dim=-1)  # not supported for DTensors
+        # next_states = torch.bmm((up * torch.nn.functional.silu(gate)), self.down_proj.weight.view(self.num_experts, self.expert_dim, self.hidden_size))
+        next_states = torch.bmm((up * torch.nn.functional.silu(gate)), self.down_proj)
+        next_states = next_states.reshape(self.num_experts, batch_size, -1, self.hidden_size)
+        next_states = (
+            next_states * routing_weights.transpose(0, 1).view(self.num_experts, batch_size, -1)[..., None]
+        )
+        next_states = next_states.sum(dim=0)
+        return next_states
+
+class Qwen3VLMoeTextSparseMoeBlock:
+    def __init__(self, config, quant_config=None):
+        super().__init__()
+        self.hidden_size = config.hidden_size
+        self.num_experts = config.num_experts
+        self.top_k = config.num_experts_per_tok
+        self.gate = L.QLinear(config.hidden_size, config.num_experts, bias=False)
+        self.experts = Qwen3VLMoeTextExperts(config, quant_config=quant_config)
+
+    def __call__(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # TODO support fused moe kernel, the current implementation is not efficient.
+        batch_size = hidden_states.shape[0]
+        hidden_states = hidden_states.reshape(-1, self.hidden_size)
+        router_logits = self.gate(hidden_states)
+        routing_weights = torch.nn.functional.softmax(router_logits, dim=-1, dtype=torch.float)
+        routing_weights, router_indices = torch.topk(routing_weights, self.top_k, dim=-1)
+        routing_weights = routing_weights / routing_weights.sum(dim=-1, keepdim=True)
+        routing_weights = routing_weights.to(router_logits.dtype)
+        router_weights = torch.zeros_like(router_logits).scatter_(1, router_indices, routing_weights)
+        hidden_states = hidden_states.reshape(batch_size, -1, self.hidden_size)
+        routed_out = self.experts(hidden_states, router_weights, router_indices)
+        return routed_out
 
 class TextDecoderLayer:
+    '''
+    Supported Dense and MoE Decoder Layer of Qwen3-VL.
+    '''
     def __init__(self, config: Qwen3VLTextConfig, layer_idx: int, quant_config=None):
         super().__init__()
         self.hidden_size = config.hidden_size
 
         self.self_attn = TextAttention(config=config, layer_idx=layer_idx, quant_config=quant_config)
 
-        self.mlp = TextMLP(config, quant_config=quant_config)
+        if config.num_experts is None: #dense model
+            self.mlp = TextMLP(config, quant_config=quant_config)
+        else: #moe model
+            if (layer_idx not in config.mlp_only_layers) and (
+                config.num_experts > 0 and (layer_idx + 1) % config.decoder_sparse_step == 0
+            ):
+                self.mlp = Qwen3VLMoeTextSparseMoeBlock(config, quant_config=quant_config)
+            else:
+                self.mlp = TextMLP(config, quant_config=quant_config)
+
         self.input_layernorm = L.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = L.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 

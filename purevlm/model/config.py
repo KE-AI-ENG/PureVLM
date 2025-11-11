@@ -34,6 +34,7 @@ class Qwen3VLVisionConfig:
         self.initializer_range = initializer_range
         self.deepstack_visual_indexes = deepstack_visual_indexes
 
+#merge the dense config and moe config
 class Qwen3VLTextConfig:
     def __init__(
         self,
@@ -41,6 +42,7 @@ class Qwen3VLTextConfig:
         attention_dropout = 0.0,
         bos_token_id = 151643,
         dtype = "bfloat16",
+        decoder_sparse_step = None,
         eos_token_id = 151645,
         head_dim = 128,
         hidden_act = "silu",
@@ -48,8 +50,13 @@ class Qwen3VLTextConfig:
         initializer_range = 0.02,
         intermediate_size = 9728,
         max_position_embeddings = 262144,
+        mlp_only_layers = [],
         model_type = "qwen3_vl_text",
+        moe_intermediate_size = None,
+        norm_topk_prob = False,
         num_attention_heads = 32,
+        num_experts = None,
+        num_experts_per_tok = None,
         num_hidden_layers = 36,
         num_key_value_heads = 8,
         rms_norm_eps = 1e-06,
@@ -81,6 +88,16 @@ class Qwen3VLTextConfig:
         self.attention_bias = attention_bias
         self.attention_dropout = attention_dropout
         self.pad_token_id = None
+
+        #moe config
+        self.decoder_sparse_step = decoder_sparse_step
+        self.mlp_only_layers = mlp_only_layers
+        self.moe_intermediate_size = moe_intermediate_size
+        self.norm_topk_prob = norm_topk_prob
+        self.num_experts = num_experts
+        self.num_experts_per_tok = num_experts_per_tok
+
+
 
 class Qwen3VLConfig:
     """Qwen3-VL模型配置类"""

@@ -3,14 +3,14 @@ import time
 from PIL import Image
 import torch
 
-from purevlm.engine import create_model
+from purevlm.engine import InferEngine
 
 def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, max_generated_len=128, sys_prompts=None, topk=0, topp=1.0, repetition_penalty=1.0, presence_penalty=0.0, path_online_quant=""):
     """推理示例，带 warmup 和 token 数统计"""
 
     # ===== 模型创建 =====
     model_start_time = time.time()
-    qw_model = create_model(model_dir=model_path, path_online_quant=path_online_quant)
+    inf_engine_ = InferEngine(ckpt_path=model_path, path_online_quant=path_online_quant)
     torch.cuda.synchronize()
     model_end_time = time.time()
     model_load_time = model_end_time - model_start_time
@@ -38,7 +38,7 @@ def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, 
 
     # ===== Warmup =====
     with torch.no_grad():
-        _,_,_ = qw_model.generate(
+        _,_,_ = inf_engine_.generate(
             prompts=input_prompts,
             images=images,
             generated_len=8,
@@ -52,7 +52,7 @@ def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, 
     # ===== prefill time =====
     prefill_start_time = time.time()
     with torch.no_grad():
-        _,_,_ = qw_model.generate(
+        _,_,_ = inf_engine_.generate(
             prompts=input_prompts,
             images=images,
             generated_len=1,
@@ -66,7 +66,7 @@ def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, 
     start_time = time.time()
 
     with torch.no_grad():
-        generated_ids, prefill_token_len, generated_token_len = qw_model.generate(
+        generated_ids, prefill_token_len, generated_token_len = inf_engine_.generate(
             prompts = input_prompts,
             images = images,
             generated_len = max_generated_len,
@@ -87,7 +87,7 @@ def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, 
     elapsed_time = end_time - start_time
     throughput = (generated_token_len-1) / (elapsed_time-prefill_time)
 
-    output_text = qw_model.tokenizer.batch_decode(
+    output_text = inf_engine_.tokenizer.batch_decode(
         generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
     )
 

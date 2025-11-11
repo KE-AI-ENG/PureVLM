@@ -5,15 +5,12 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch import Tensor
 
 import purevlm.layer as L
-from purevlm.model.config import Qwen3VLTextConfig
-
+from purevlm.utils.configs.qwen3_vl_config import Qwen3VLTextConfig
 
 class KVCache:
-    def __init__(self, config:Qwen3VLTextConfig):
+    def __init__(self, config):
         self.max_seq_len = config.max_position_embeddings
         self.layer_num = config.num_hidden_layers
         self.head_num = config.num_key_value_heads

@@ -5,11 +5,9 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 import purevlm.layer as L
-from purevlm.model.config import Qwen3VLVisionConfig
-
+from purevlm.utils.configs.qwen3_vl_config import Qwen3VLVisionConfig
 
 class VisionMLP:
     def __init__(self, config, quant_config=None) -> None:

@@ -14,10 +14,10 @@ from fastapi import FastAPI, HTTPException
 from PIL import Image
 from pydantic import BaseModel, Field
 
-from purevlm.engine import create_model
+from purevlm.engine import InferEngine
 
 # 全局模型变量
-model = None
+inf_engine_ = None
 model_path = None
 
 # 创建 FastAPI 应用
@@ -82,15 +82,15 @@ class ChatCompletionResponse(BaseModel):
 
 # ==================== 辅助函数 ====================
 
-def load_model(model_dir: str, path_online_quant):
+def load_model(model_dir: str, path_online_quant, max_seq_len: int = 4096) -> InferEngine:
     """加载模型到全局变量"""
-    global model, model_path
-    if model is None or model_path != model_dir:
-        print(f"正在加载模型: {model_dir}")
-        model = create_model(model_dir=model_dir, path_online_quant=path_online_quant)
+    global inf_engine_, model_path
+    if inf_engine_ is None or model_path != model_dir:
+        print(f"正在加载模型ckpt路径: {model_dir}")
+        inf_engine_ = InferEngine(ckpt_path=model_dir, max_seq_len=max_seq_len, path_online_quant=path_online_quant)
         model_path = model_dir
         print("模型加载完成!")
-    return model
+    return inf_engine_
 
 def download_image(url: str) -> Image.Image:
     """从 URL 下载图片"""
@@ -191,14 +191,14 @@ def generate_text(
     do_sample: bool = True
 ) -> tuple[str, int, int]:
     """生成文本"""
-    global model
+    global inf_engine_
     
-    if model is None:
+    if inf_engine_ is None:
         raise HTTPException(status_code=500, detail="模型未加载")
     
     # 生成文本
     with torch.no_grad():
-        generated_ids, p_len, d_len = model.generate(
+        generated_ids, p_len, d_len = inf_engine_.generate(
             prompts=prompt,
             images=image,
             generated_len=max_tokens,  # 生成长度
@@ -206,7 +206,7 @@ def generate_text(
             do_sample=do_sample
         )
     
-    output_text = model.tokenizer.batch_decode(
+    output_text = inf_engine_.tokenizer.batch_decode(
         generated_ids, 
         skip_special_tokens=True, 
         clean_up_tokenization_spaces=False
@@ -237,7 +237,7 @@ async def root():
     return {
         "message": "Qwen3VL API Server",
         "status": "running",
-        "model_loaded": model is not None,
+        "model_loaded": inf_engine_ is not None,
         "api_version": "v1",
         "compatible_with": "OpenAI Chat Completions API"
     }
@@ -335,7 +335,7 @@ async def health_check():
     """健康检查"""
     return {
         "status": "healthy",
-        "model_loaded": model is not None,
+        "model_loaded": inf_engine_ is not None,
         "timestamp": int(time.time())
     }
 
@@ -377,11 +377,17 @@ def main():
         default="", 
         help="Path for online quantization json. Not '' indicates using online quantization for base model, eg. Qwen3-VL-8B-Instruct"
     )
+    parser.add_argument(
+        '--max-seq-len', 
+        type=int, 
+        default=4096, 
+        help="max sequence length for inference, include prefill-prompt and decode-generated, default 4096"
+    )
     
     args = parser.parse_args()
     
     # 加载模型
-    load_model(args.model_path, args.using_online_quant)
+    load_model(args.model_path, args.using_online_quant, max_seq_len=args.max_seq_len)
     
     # 启动服务器
     print(f"\n启动 API Server:")

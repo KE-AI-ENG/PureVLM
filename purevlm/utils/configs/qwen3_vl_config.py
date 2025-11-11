@@ -72,6 +72,7 @@ class Qwen3VLTextConfig:
         self.intermediate_size = intermediate_size
         self.num_hidden_layers = num_hidden_layers
         self.num_attention_heads = num_attention_heads
+        self.eos_token_id = eos_token_id
 
         # for backward compatibility
         if num_key_value_heads is None:

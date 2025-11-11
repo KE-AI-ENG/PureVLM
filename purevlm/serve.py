@@ -82,12 +82,12 @@ class ChatCompletionResponse(BaseModel):
 
 # ==================== 辅助函数 ====================
 
-def load_model(model_dir: str):
+def load_model(model_dir: str, path_online_quant):
     """加载模型到全局变量"""
     global model, model_path
     if model is None or model_path != model_dir:
         print(f"正在加载模型: {model_dir}")
-        model = create_model(model_dir=model_dir)
+        model = create_model(model_dir=model_dir, path_online_quant=path_online_quant)
         model_path = model_dir
         print("模型加载完成!")
     return model
@@ -371,11 +371,17 @@ def main():
         default=1, 
         help='工作进程数'
     )
+    parser.add_argument(
+        "-q", '--using-online-quant', 
+        type=str, 
+        default="", 
+        help="Path for online quantization json. Not '' indicates using online quantization for base model, eg. Qwen3-VL-8B-Instruct"
+    )
     
     args = parser.parse_args()
     
     # 加载模型
-    load_model(args.model_path)
+    load_model(args.model_path, args.using_online_quant)
     
     # 启动服务器
     print(f"\n启动 API Server:")

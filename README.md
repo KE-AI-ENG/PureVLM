@@ -14,6 +14,8 @@ A pure VLM model inference engine.
 
 `python offline_demo.py -m /path/to/Qwen3-VL -p '帮我找下音箱' -t 0.0 -im ./jiaju-demo.png`
 
+To use online quantization, please add `-q /path/to/quant/json`
+
 ### server-client-mode
 
 此模式需要先启动一个api server，然后通过发送请求运行模型生成

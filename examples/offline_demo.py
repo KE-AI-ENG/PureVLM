@@ -5,12 +5,12 @@ import torch
 
 from purevlm.engine import create_model
 
-def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, max_generated_len=128, sys_prompts=None, topk=0, topp=1.0, repetition_penalty=1.0, presence_penalty=0.0, using_online_quant=False):
+def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, max_generated_len=128, sys_prompts=None, topk=0, topp=1.0, repetition_penalty=1.0, presence_penalty=0.0, path_online_quant=""):
     """推理示例，带 warmup 和 token 数统计"""
 
     # ===== 模型创建 =====
     model_start_time = time.time()
-    qw_model = create_model(model_dir=model_path, using_online_quant=using_online_quant)
+    qw_model = create_model(model_dir=model_path, path_online_quant=path_online_quant)
     torch.cuda.synchronize()
     model_end_time = time.time()
     model_load_time = model_end_time - model_start_time
@@ -116,7 +116,7 @@ if __name__ == "__main__":
     parser.add_argument('--repetition-penalty', type=float, default=1.0, help="Repetition penalty")
     parser.add_argument('--presence-penalty', type=float, default=0.0, help="Presence penalty")
     
-    parser.add_argument('--using-online-quant', action="store_true", help="Using online quantization for base model, eg. Qwen3-VL-8B-Instruct")
+    parser.add_argument("-q", '--using-online-quant', type=str, default="", help="Path for online quantization json. Not '' indicates using online quantization for base model, eg. Qwen3-VL-8B-Instruct")
     
     args = parser.parse_args()
 
@@ -127,7 +127,7 @@ if __name__ == "__main__":
         temp=args.temperature,
         max_generated_len=args.max_gen_len,
         sys_prompts=args.sys_prompt,
-        using_online_quant=args.using_online_quant
+        path_online_quant=args.using_online_quant
     )
 
     print(generated_text)

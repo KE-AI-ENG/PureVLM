@@ -886,18 +886,22 @@ torch::Tensor gptq_marlin_gemm(
   int dev = a.get_device();
   if (a.scalar_type() == at::ScalarType::Half) {
     void* scales_ptr;
-    if (b_q_type == purevlm::kFE2M1f) {
-      if (group_size == 16)
-        scales_ptr = b_scales.data_ptr<at::Float8_e4m3fn>();
-      else if (group_size == 32)
-        scales_ptr = b_scales.data_ptr<at::Float8_e8m0fnu>();
-      else
-        TORCH_CHECK(false,
-                    "float4_e2m1f only supports group_size == 16 (NVFP4) ",
-                    "and group_size == 32 (MXFP4)");
-    } else {
+    #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1100)
+      if (b_q_type == purevlm::kFE2M1f) {
+        if (group_size == 16)
+          scales_ptr = b_scales.data_ptr<at::Float8_e4m3fn>();
+        else if (group_size == 32)
+          scales_ptr = b_scales.data_ptr<at::Float8_e8m0fnu>();
+        else
+          TORCH_CHECK(false,
+                      "float4_e2m1f only supports group_size == 16 (NVFP4) ",
+                      "and group_size == 32 (MXFP4)");
+      } else {
+        scales_ptr = b_scales.data_ptr<at::Half>();
+      }
+    #else
       scales_ptr = b_scales.data_ptr<at::Half>();
-    }
+    #endif
 
     marlin::marlin_mm<half>(
         a.data_ptr<at::Half>(), b_q_weight.data_ptr(), c.data_ptr<at::Half>(),
@@ -910,18 +914,22 @@ torch::Tensor gptq_marlin_gemm(
         use_atomic_add, use_fp32_reduce, is_zp_float);
   } else if (a.scalar_type() == at::ScalarType::BFloat16) {
     void* scales_ptr;
-    if (b_q_type == purevlm::kFE2M1f) {
-      if (group_size == 16)
-        scales_ptr = b_scales.data_ptr<at::Float8_e4m3fn>();
-      else if (group_size == 32)
-        scales_ptr = b_scales.data_ptr<at::Float8_e8m0fnu>();
-      else
-        TORCH_CHECK(false,
-                    "float4_e2m1f only supports group_size == 16 (NVFP4) ",
-                    "and group_size == 32 (MXFP4)");
-    } else {
+    #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1100)
+      if (b_q_type == purevlm::kFE2M1f) {
+        if (group_size == 16)
+          scales_ptr = b_scales.data_ptr<at::Float8_e4m3fn>();
+        else if (group_size == 32)
+          scales_ptr = b_scales.data_ptr<at::Float8_e8m0fnu>();
+        else
+          TORCH_CHECK(false,
+                      "float4_e2m1f only supports group_size == 16 (NVFP4) ",
+                      "and group_size == 32 (MXFP4)");
+      } else {
+        scales_ptr = b_scales.data_ptr<at::BFloat16>();
+      }
+    #else
       scales_ptr = b_scales.data_ptr<at::BFloat16>();
-    }
+    #endif
 
     marlin::marlin_mm<nv_bfloat16>(
         a.data_ptr<at::BFloat16>(), b_q_weight.data_ptr(),

@@ -32,7 +32,8 @@ def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_
                                                 '--compiler-options', '-fPIC',
                                                 '-gencode=arch=compute_80, code=sm_80',
                                                 '-gencode=arch=compute_86, code=sm_86',
-                                                '-gencode=arch=compute_87, code=sm_87'
+                                                '-gencode=arch=compute_87, code=sm_87',
+                                                "-static-global-template-stub=false"
                                             ]
         }
     elif 890 == compile_dicts['cuda_arch_v']: #Ada Lovelace

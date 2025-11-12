@@ -38,8 +38,8 @@ SCALAR_TYPES = [
     "purevlm::kU4",
     "purevlm::kU4B8",
     "purevlm::kU8B128",
-    "purevlm::kFE4M3fn",
-    "purevlm::kFE2M1f",
+    # "purevlm::kFE4M3fn",
+    # "purevlm::kFE2M1f",
 ]
 THREAD_CONFIGS = [(128, 128, 256), (64, 256, 256), (64, 128, 128), (128, 64, 128)]
 

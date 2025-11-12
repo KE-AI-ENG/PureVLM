@@ -256,205 +256,205 @@ __device__ inline void dequant<nv_bfloat162, purevlm::kU8.id(), false>(
                                    fp32_intermediates_casted[3], 0x7632);
 }
 
-template <>
-__device__ inline void dequant<half2, purevlm::kFE4M3fn.id(), true>(
-    int q, half2* frag_b) {
-  // Constants for FP8 (E4M3) and FP16 formats
-  constexpr int FP8_EXPONENT = 4, FP16_EXPONENT = 5;
-  constexpr int RIGHT_SHIFT = FP16_EXPONENT - FP8_EXPONENT;
-  constexpr int MASK = 0x7F007F00;
+// template <>
+// __device__ inline void dequant<half2, purevlm::kFE4M3fn.id(), true>(
+//     int q, half2* frag_b) {
+//   // Constants for FP8 (E4M3) and FP16 formats
+//   constexpr int FP8_EXPONENT = 4, FP16_EXPONENT = 5;
+//   constexpr int RIGHT_SHIFT = FP16_EXPONENT - FP8_EXPONENT;
+//   constexpr int MASK = 0x7F007F00;
 
-  // Extract and shift FP8 values to FP16 format
-  int Out1 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
-  q <<= 8;
-  int Out2 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
+//   // Extract and shift FP8 values to FP16 format
+//   int Out1 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
+//   q <<= 8;
+//   int Out2 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
 
-  // Note: reverse indexing is intentional because weights are permuted
-  frag_b[1] = *reinterpret_cast<const half2*>(&Out1);
-  frag_b[0] = *reinterpret_cast<const half2*>(&Out2);
-}
+//   // Note: reverse indexing is intentional because weights are permuted
+//   frag_b[1] = *reinterpret_cast<const half2*>(&Out1);
+//   frag_b[0] = *reinterpret_cast<const half2*>(&Out2);
+// }
 
-template <>
-__device__ inline void dequant<half2, purevlm::kFE4M3fn.id(), false>(
-    int q, half2* frag_b) {
-  dequant<half2, purevlm::kFE4M3fn.id(), true>(q, frag_b);
+// template <>
+// __device__ inline void dequant<half2, purevlm::kFE4M3fn.id(), false>(
+//     int q, half2* frag_b) {
+//   dequant<half2, purevlm::kFE4M3fn.id(), true>(q, frag_b);
 
-  // Constants for FP8 (E4M3) and FP16 formats
-  constexpr int FP8_EXPONENT = 4, FP16_EXPONENT = 5;
+//   // Constants for FP8 (E4M3) and FP16 formats
+//   constexpr int FP8_EXPONENT = 4, FP16_EXPONENT = 5;
 
-  // Construct and apply exponent bias
-  constexpr int BIAS_OFFSET =
-      (1 << (FP16_EXPONENT - 1)) - (1 << (FP8_EXPONENT - 1));
-  const half2 bias_reg = __float2half2_rn(float(1 << BIAS_OFFSET));
+//   // Construct and apply exponent bias
+//   constexpr int BIAS_OFFSET =
+//       (1 << (FP16_EXPONENT - 1)) - (1 << (FP8_EXPONENT - 1));
+//   const half2 bias_reg = __float2half2_rn(float(1 << BIAS_OFFSET));
 
-  // Convert to half2 and apply bias
-  frag_b[1] = __hmul2(frag_b[1], bias_reg);
-  frag_b[0] = __hmul2(frag_b[0], bias_reg);
-}
+//   // Convert to half2 and apply bias
+//   frag_b[1] = __hmul2(frag_b[1], bias_reg);
+//   frag_b[0] = __hmul2(frag_b[0], bias_reg);
+// }
 
-template <>
-__device__ inline void dequant<nv_bfloat162, purevlm::kFE4M3fn.id(), true>(
-    int q, nv_bfloat162* frag_b) {
-  // Constants for FP8 (E4M3) and BF16 formats
-  constexpr int FP8_EXPONENT = 4, BF16_EXPONENT = 8;
-  constexpr int RIGHT_SHIFT = BF16_EXPONENT - FP8_EXPONENT;
+// template <>
+// __device__ inline void dequant<nv_bfloat162, purevlm::kFE4M3fn.id(), true>(
+//     int q, nv_bfloat162* frag_b) {
+//   // Constants for FP8 (E4M3) and BF16 formats
+//   constexpr int FP8_EXPONENT = 4, BF16_EXPONENT = 8;
+//   constexpr int RIGHT_SHIFT = BF16_EXPONENT - FP8_EXPONENT;
 
-  constexpr int MASK = 0x7F007F00;
+//   constexpr int MASK = 0x7F007F00;
 
-  // Extract and shift FP8 values to BF16 format
-  int Out1 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
-  q <<= 8;
-  int Out2 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
+//   // Extract and shift FP8 values to BF16 format
+//   int Out1 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
+//   q <<= 8;
+//   int Out2 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
 
-  // Note: reverse indexing is intentional because weights are permuted
-  frag_b[1] = *reinterpret_cast<const nv_bfloat162*>(&Out1);
-  frag_b[0] = *reinterpret_cast<const nv_bfloat162*>(&Out2);
-}
+//   // Note: reverse indexing is intentional because weights are permuted
+//   frag_b[1] = *reinterpret_cast<const nv_bfloat162*>(&Out1);
+//   frag_b[0] = *reinterpret_cast<const nv_bfloat162*>(&Out2);
+// }
 
-template <>
-__device__ inline void dequant<nv_bfloat162, purevlm::kFE4M3fn.id(), false>(
-    int q, nv_bfloat162* frag_b) {
-  dequant<nv_bfloat162, purevlm::kFE4M3fn.id(), true>(q, frag_b);
+// template <>
+// __device__ inline void dequant<nv_bfloat162, purevlm::kFE4M3fn.id(), false>(
+//     int q, nv_bfloat162* frag_b) {
+//   dequant<nv_bfloat162, purevlm::kFE4M3fn.id(), true>(q, frag_b);
 
-  // Constants for FP8 (E4M3) and BF16 formats
-  constexpr int FP8_EXPONENT = 4, BF16_EXPONENT = 8;
+//   // Constants for FP8 (E4M3) and BF16 formats
+//   constexpr int FP8_EXPONENT = 4, BF16_EXPONENT = 8;
 
-  // Construct and apply exponent bias
-  constexpr int BIAS_OFFSET =
-      (1 << (BF16_EXPONENT - 1)) - (1 << (FP8_EXPONENT - 1));
-  // Add 127 (float exponent bias) to BIAS_OFFSET and shift to float exponent
-  // position
-  constexpr uint32_t BIAS = (BIAS_OFFSET + 127) << 23;
-  const nv_bfloat162 bias_reg =
-      __float2bfloat162_rn(*reinterpret_cast<const float*>(&BIAS));
+//   // Construct and apply exponent bias
+//   constexpr int BIAS_OFFSET =
+//       (1 << (BF16_EXPONENT - 1)) - (1 << (FP8_EXPONENT - 1));
+//   // Add 127 (float exponent bias) to BIAS_OFFSET and shift to float exponent
+//   // position
+//   constexpr uint32_t BIAS = (BIAS_OFFSET + 127) << 23;
+//   const nv_bfloat162 bias_reg =
+//       __float2bfloat162_rn(*reinterpret_cast<const float*>(&BIAS));
 
-  // Convert to bfloat162 and apply bias
-  frag_b[1] = __hmul2(frag_b[1], bias_reg);
-  frag_b[0] = __hmul2(frag_b[0], bias_reg);
-}
+//   // Convert to bfloat162 and apply bias
+//   frag_b[1] = __hmul2(frag_b[1], bias_reg);
+//   frag_b[0] = __hmul2(frag_b[0], bias_reg);
+// }
 
-template <>
-__device__ inline void dequant<half2, purevlm::kFE2M1f.id(), true>(int q,
-                                                                half2* frag_b) {
-  // Constants for FP4 (E2M1) and FP16 formats
-  constexpr int FP4_EXPONENT = 2, FP16_EXPONENT = 5;
-  constexpr int RIGHT_SHIFT = FP16_EXPONENT - FP4_EXPONENT;
-  constexpr int MASK = 0x70007000;
+// template <>
+// __device__ inline void dequant<half2, purevlm::kFE2M1f.id(), true>(int q,
+//                                                                 half2* frag_b) {
+//   // Constants for FP4 (E2M1) and FP16 formats
+//   constexpr int FP4_EXPONENT = 2, FP16_EXPONENT = 5;
+//   constexpr int RIGHT_SHIFT = FP16_EXPONENT - FP4_EXPONENT;
+//   constexpr int MASK = 0x70007000;
 
-  // Extract and shift FP4 values to FP16 format
-  int Out1 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
-  q <<= 4;
-  int Out2 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
+//   // Extract and shift FP4 values to FP16 format
+//   int Out1 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
+//   q <<= 4;
+//   int Out2 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
 
-  // Note: reverse indexing is intentional because weights are permuted
-  frag_b[1] = *reinterpret_cast<const half2*>(&Out1);
-  frag_b[0] = *reinterpret_cast<const half2*>(&Out2);
-}
+//   // Note: reverse indexing is intentional because weights are permuted
+//   frag_b[1] = *reinterpret_cast<const half2*>(&Out1);
+//   frag_b[0] = *reinterpret_cast<const half2*>(&Out2);
+// }
 
-template <>
-__device__ inline void dequant<half2, purevlm::kFE2M1f.id(), false>(
-    int q, half2* frag_b) {
-  dequant<half2, purevlm::kFE2M1f.id(), true>(q, frag_b);
+// template <>
+// __device__ inline void dequant<half2, purevlm::kFE2M1f.id(), false>(
+//     int q, half2* frag_b) {
+//   dequant<half2, purevlm::kFE2M1f.id(), true>(q, frag_b);
 
-  // Constants for FP4 (E2M1) and FP16 formats
-  constexpr int FP4_EXPONENT = 2, FP16_EXPONENT = 5;
+//   // Constants for FP4 (E2M1) and FP16 formats
+//   constexpr int FP4_EXPONENT = 2, FP16_EXPONENT = 5;
 
-  // Construct and apply exponent bias
-  constexpr int BIAS_OFFSET =
-      (1 << (FP16_EXPONENT - 1)) - (1 << (FP4_EXPONENT - 1));
-  const half2 bias_reg = __float2half2_rn(float(1 << BIAS_OFFSET));
+//   // Construct and apply exponent bias
+//   constexpr int BIAS_OFFSET =
+//       (1 << (FP16_EXPONENT - 1)) - (1 << (FP4_EXPONENT - 1));
+//   const half2 bias_reg = __float2half2_rn(float(1 << BIAS_OFFSET));
 
-  // Convert to half2 and apply bias
-  frag_b[1] = __hmul2(frag_b[1], bias_reg);
-  frag_b[0] = __hmul2(frag_b[0], bias_reg);
-}
+//   // Convert to half2 and apply bias
+//   frag_b[1] = __hmul2(frag_b[1], bias_reg);
+//   frag_b[0] = __hmul2(frag_b[0], bias_reg);
+// }
 
-template <>
-__device__ inline void dequant<nv_bfloat162, purevlm::kFE2M1f.id(), true>(
-    int q, nv_bfloat162* frag_b) {
-  // Constants for FP4 (E2M1) and FP16 formats
-  constexpr int FP4_EXPONENT = 2, BF16_EXPONENT = 8;
-  constexpr int RIGHT_SHIFT = BF16_EXPONENT - FP4_EXPONENT;
-  constexpr int MASK = 0x70007000;
+// template <>
+// __device__ inline void dequant<nv_bfloat162, purevlm::kFE2M1f.id(), true>(
+//     int q, nv_bfloat162* frag_b) {
+//   // Constants for FP4 (E2M1) and FP16 formats
+//   constexpr int FP4_EXPONENT = 2, BF16_EXPONENT = 8;
+//   constexpr int RIGHT_SHIFT = BF16_EXPONENT - FP4_EXPONENT;
+//   constexpr int MASK = 0x70007000;
 
-  // Extract and shift FP4 values to FP16 format
-  int Out1 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
-  q <<= 4;
-  int Out2 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
+//   // Extract and shift FP4 values to FP16 format
+//   int Out1 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
+//   q <<= 4;
+//   int Out2 = (q & 0x80008000) | ((q & MASK) >> RIGHT_SHIFT);
 
-  // Note: reverse indexing is intentional because weights are permuted
-  frag_b[1] = *reinterpret_cast<const nv_bfloat162*>(&Out1);
-  frag_b[0] = *reinterpret_cast<const nv_bfloat162*>(&Out2);
-}
+//   // Note: reverse indexing is intentional because weights are permuted
+//   frag_b[1] = *reinterpret_cast<const nv_bfloat162*>(&Out1);
+//   frag_b[0] = *reinterpret_cast<const nv_bfloat162*>(&Out2);
+// }
 
-template <>
-__device__ inline void dequant<nv_bfloat162, purevlm::kFE2M1f.id(), false>(
-    int q, nv_bfloat162* frag_b) {
-  dequant<nv_bfloat162, purevlm::kFE2M1f.id(), true>(q, frag_b);
+// template <>
+// __device__ inline void dequant<nv_bfloat162, purevlm::kFE2M1f.id(), false>(
+//     int q, nv_bfloat162* frag_b) {
+//   dequant<nv_bfloat162, purevlm::kFE2M1f.id(), true>(q, frag_b);
 
-  // Constants for FP4 (E2M1) and BF16 formats
-  constexpr int FP4_EXPONENT = 2, BF16_EXPONENT = 8;
+//   // Constants for FP4 (E2M1) and BF16 formats
+//   constexpr int FP4_EXPONENT = 2, BF16_EXPONENT = 8;
 
-  // Construct and apply exponent bias
-  constexpr int BIAS_OFFSET =
-      (1 << (BF16_EXPONENT - 1)) - (1 << (FP4_EXPONENT - 1));
-  // Add 127 (float exponent bias) to BIAS_OFFSET and shift to float exponent
-  // position
-  constexpr uint32_t BIAS = (BIAS_OFFSET + 127) << 23;
-  const nv_bfloat162 bias_reg =
-      __float2bfloat162_rn(*reinterpret_cast<const float*>(&BIAS));
+//   // Construct and apply exponent bias
+//   constexpr int BIAS_OFFSET =
+//       (1 << (BF16_EXPONENT - 1)) - (1 << (FP4_EXPONENT - 1));
+//   // Add 127 (float exponent bias) to BIAS_OFFSET and shift to float exponent
+//   // position
+//   constexpr uint32_t BIAS = (BIAS_OFFSET + 127) << 23;
+//   const nv_bfloat162 bias_reg =
+//       __float2bfloat162_rn(*reinterpret_cast<const float*>(&BIAS));
 
-  // Convert to half2 and apply bias
-  frag_b[1] = __hmul2(frag_b[1], bias_reg);
-  frag_b[0] = __hmul2(frag_b[0], bias_reg);
-}
+//   // Convert to half2 and apply bias
+//   frag_b[1] = __hmul2(frag_b[1], bias_reg);
+//   frag_b[0] = __hmul2(frag_b[0], bias_reg);
+// }
 
-template <typename scalar_t2, purevlm::ScalarTypeId s_type_id>
-__device__ inline void dequant_fp8_scales(int q, scalar_t2* frag_b);
+// template <typename scalar_t2, purevlm::ScalarTypeId s_type_id>
+// __device__ inline void dequant_fp8_scales(int q, scalar_t2* frag_b);
 
-template <>
-__device__ inline void dequant_fp8_scales<half2, purevlm::kFE4M3fn.id()>(
-    int q, half2* frag_b) {
-  int Out1 = (q & 0xFF00FF00) >> 1;
-  ;
-  q <<= 8;
-  int Out2 = (q & 0xFF00FF00) >> 1;
+// template <>
+// __device__ inline void dequant_fp8_scales<half2, purevlm::kFE4M3fn.id()>(
+//     int q, half2* frag_b) {
+//   int Out1 = (q & 0xFF00FF00) >> 1;
+//   ;
+//   q <<= 8;
+//   int Out2 = (q & 0xFF00FF00) >> 1;
 
-  // Note: reverse indexing is intentional because weights are permuted
-  frag_b[1] = *reinterpret_cast<const half2*>(&Out1);
-  frag_b[0] = *reinterpret_cast<const half2*>(&Out2);
-};
+//   // Note: reverse indexing is intentional because weights are permuted
+//   frag_b[1] = *reinterpret_cast<const half2*>(&Out1);
+//   frag_b[0] = *reinterpret_cast<const half2*>(&Out2);
+// };
 
-template <>
-__device__ inline void dequant_fp8_scales<nv_bfloat162, purevlm::kFE4M3fn.id()>(
-    int q, nv_bfloat162* frag_b) {
-  constexpr int FP8_EXPONENT = 4, BF16_EXPONENT = 8;
-  constexpr int RIGHT_SHIFT = BF16_EXPONENT - FP8_EXPONENT;
-  constexpr int MASK = 0x7F007F00;
+// template <>
+// __device__ inline void dequant_fp8_scales<nv_bfloat162, purevlm::kFE4M3fn.id()>(
+//     int q, nv_bfloat162* frag_b) {
+//   constexpr int FP8_EXPONENT = 4, BF16_EXPONENT = 8;
+//   constexpr int RIGHT_SHIFT = BF16_EXPONENT - FP8_EXPONENT;
+//   constexpr int MASK = 0x7F007F00;
 
-  // Extract and shift FP8 values to BF16 format
-  int Out1 = ((q & 0x80008000) >> 1) | ((q & MASK) >> RIGHT_SHIFT);
-  q <<= 8;
-  int Out2 = ((q & 0x80008000) >> 1) | ((q & MASK) >> RIGHT_SHIFT);
+//   // Extract and shift FP8 values to BF16 format
+//   int Out1 = ((q & 0x80008000) >> 1) | ((q & MASK) >> RIGHT_SHIFT);
+//   q <<= 8;
+//   int Out2 = ((q & 0x80008000) >> 1) | ((q & MASK) >> RIGHT_SHIFT);
 
-  // Note: reverse indexing is intentional because weights are permuted
-  frag_b[1] = *reinterpret_cast<const nv_bfloat162*>(&Out1);
-  frag_b[0] = *reinterpret_cast<const nv_bfloat162*>(&Out2);
-}
+//   // Note: reverse indexing is intentional because weights are permuted
+//   frag_b[1] = *reinterpret_cast<const nv_bfloat162*>(&Out1);
+//   frag_b[0] = *reinterpret_cast<const nv_bfloat162*>(&Out2);
+// }
 
-template <>
-__device__ inline void dequant_fp8_scales<nv_bfloat162, purevlm::kFE8M0fnu.id()>(
-    int q, nv_bfloat162* frag_b) {
-  // In this conversion, 2 ** -127 in FP8E8M0 would become 0 in BF16,
-  // but we assume that such a extreme value would not occur in real models.
-  int Out1 = (q & 0xFF00FF00) >> 1;
-  q <<= 7;
-  int Out2 = q & 0x7F807F80;
+// template <>
+// __device__ inline void dequant_fp8_scales<nv_bfloat162, purevlm::kFE8M0fnu.id()>(
+//     int q, nv_bfloat162* frag_b) {
+//   // In this conversion, 2 ** -127 in FP8E8M0 would become 0 in BF16,
+//   // but we assume that such a extreme value would not occur in real models.
+//   int Out1 = (q & 0xFF00FF00) >> 1;
+//   q <<= 7;
+//   int Out2 = q & 0x7F807F80;
 
-  // Note: reverse indexing is intentional because weights are permuted
-  frag_b[1] = *reinterpret_cast<const nv_bfloat162*>(&Out1);
-  frag_b[0] = *reinterpret_cast<const nv_bfloat162*>(&Out2);
-}
+//   // Note: reverse indexing is intentional because weights are permuted
+//   frag_b[1] = *reinterpret_cast<const nv_bfloat162*>(&Out1);
+//   frag_b[0] = *reinterpret_cast<const nv_bfloat162*>(&Out2);
+// }
 
 #endif
 

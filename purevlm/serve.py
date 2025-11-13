@@ -82,12 +82,12 @@ class ChatCompletionResponse(BaseModel):
 
 # ==================== 辅助函数 ====================
 
-def load_model(model_dir: str, path_online_quant, max_seq_len: int = 4096) -> InferEngine:
+def load_model(model_dir: str, path_online_quant, max_seq_len: int = 4096, use_cuda_graph: bool = False) -> InferEngine:
     """加载模型到全局变量"""
     global inf_engine_, model_path
     if inf_engine_ is None or model_path != model_dir:
         print(f"正在加载模型ckpt路径: {model_dir}")
-        inf_engine_ = InferEngine(ckpt_path=model_dir, max_seq_len=max_seq_len, path_online_quant=path_online_quant)
+        inf_engine_ = InferEngine(ckpt_path=model_dir, max_seq_len=max_seq_len, path_online_quant=path_online_quant, use_cuda_graph=use_cuda_graph)
         model_path = model_dir
         print("模型加载完成!")
     return inf_engine_
@@ -383,11 +383,16 @@ def main():
         default=4096, 
         help="max sequence length for inference, include prefill-prompt and decode-generated, default 4096"
     )
+    parser.add_argument(
+        '--use-cuda-graph', 
+        action='store_true', 
+        help="Use cuda graph for inference, default False"
+    )
     
     args = parser.parse_args()
     
     # 加载模型
-    load_model(args.model_path, args.using_online_quant, max_seq_len=args.max_seq_len)
+    load_model(args.model_path, args.using_online_quant, max_seq_len=args.max_seq_len, use_cuda_graph=args.use_cuda_graph)
     
     # 启动服务器
     print(f"\n启动 API Server:")

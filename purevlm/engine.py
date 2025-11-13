@@ -124,7 +124,7 @@ def weight_loading(model, checkpoint, device='cuda'):
     return loaded_keys, failed_keys
 
 class InferEngine:
-    def __init__(self, ckpt_path = "", device="cuda", torch_dtype=torch.bfloat16, batch_size=1, max_seq_len=4096, path_online_quant=""):
+    def __init__(self, ckpt_path = "", device="cuda", torch_dtype=torch.bfloat16, batch_size=1, max_seq_len=4096, path_online_quant="", use_cuda_graph=False):
         self.device = device
         self.torch_dtype = torch_dtype
         self.batch_size = batch_size
@@ -138,6 +138,12 @@ class InferEngine:
         self.create_model(ckpt_path)
         self.kv_cache = KVCache(self.config.text_config)
         self.kv_cache.allocate(batch_size=batch_size, max_len=max_seq_len, device=device, dtype=torch_dtype)
+
+        # CUDA Graph 相关
+        self.use_cuda_graph = use_cuda_graph and self.config.text_config.use_flash_attn
+        self.decode_graph = None
+        self.decode_static_input_ids = None
+        self.decode_static_cache_position = None
 
     def _load_safetensors_(self, safetensors_files, strict=False, chunk_size=64, device="cpu"):
         """
@@ -272,23 +278,92 @@ class InferEngine:
 
         return
     
+    def init_cuda_graph_decode(self, batch_size=1):
+        """
+        初始化并捕获 decode 阶段的 CUDA Graph
+        """
+        # 1. 创建静态输入缓冲区
+        self.decode_static_input_ids = torch.zeros((batch_size, 1), dtype=torch.int64, device=self.device)
+        self.decode_static_cache_position = torch.tensor([0], dtype=torch.int, device=self.device)
+        self.static_output = torch.zeros((batch_size, self.config.text_config.vocab_size), dtype=self.torch_dtype, device=self.device)
+
+        # 2. Warmup 一次，确保所有 kernel 已经加载
+        _ = self.model.forward_decode(
+            input_ids=self.decode_static_input_ids,
+            past_key_values=self.kv_cache,
+            cache_position=self.decode_static_cache_position
+        )
+
+        torch.cuda.synchronize()
+
+        # 3. 捕获 CUDA Graph
+        g = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(g):
+            self.static_output.copy_(self.model.forward_decode(
+            input_ids=self.decode_static_input_ids,
+            past_key_values=self.kv_cache,
+            cache_position=self.decode_static_cache_position
+        ))
+
+        self.decode_graph = g
+        print("[CUDA Graph] Decode 阶段捕获完成")
+
     def generate(self, prompts=None, images=None, generated_len=128, temperature=1.0, do_sample=True, top_p=1.0, top_k=0, repetition_penalty=1.0, presence_penalty=0.0):
         """text生成函数"""
 
-        input_ids, image_values, image_grid_thw, attention_mask, cache_position = self.model.processor.tokenize_inputs(images, prompts, self.config, self.device)
+        input_ids, image_values, image_grid_thw = self.model.processor.tokenize_inputs(images, prompts, self.config, self.device)
+
+        if self.config.text_config.use_flash_attn:
+            cache_position = torch.tensor([0], dtype=torch.int, device=self.device)
+        else:
+            cache_position = torch.tensor([i for i in range(input_ids.shape[-1])], dtype=torch.int, device=self.device)
 
         output_ids = torch.zeros((1,0), dtype=torch.int64, device=self.device)
 
+        # ===== Prefill 阶段 =====
+        logits = self.model.forward_prefill(
+            input_ids = input_ids,
+            pixel_values = image_values,
+            past_key_values = self.kv_cache,
+            image_grid_thw = image_grid_thw,
+            cache_position = cache_position
+        )
+        next_token = sample_next_token(
+            logits,
+            temperature=temperature,
+            do_sample=do_sample,
+            top_k=top_k,
+            top_p=top_p,
+            generated_ids=output_ids,
+            repetition_penalty=repetition_penalty,
+            presence_penalty=presence_penalty
+        )
         prefill_lengths = input_ids.shape[1]
+        output_ids = torch.cat([output_ids, next_token], dim=-1)
 
-        for _ in range(generated_len):
-            logits = self.model.forward(
-                input_ids = input_ids,
-                pixel_values = image_values,
-                past_key_values = self.kv_cache,
-                image_grid_thw = image_grid_thw,
-                cache_position = cache_position
-            )
+        if self.use_cuda_graph and self.decode_graph is None:
+            self.init_cuda_graph_decode(batch_size=1)
+
+        # ===== Decode 阶段 =====
+        for l in range(generated_len-1):
+
+            # 检查是否生成了结束token
+            if next_token.item() == self.config.text_config.eos_token_id:
+                break
+
+            if self.use_cuda_graph:
+                # 更新静态输入缓冲区
+                self.decode_static_input_ids.copy_(next_token)
+                self.decode_static_cache_position.fill_(prefill_lengths + l)
+                # 执行捕获的 CUDA Graph
+                self.decode_graph.replay()
+                logits = self.static_output.clone()
+            else:
+                logits = self.model.forward_decode(
+                    input_ids = next_token,
+                    past_key_values = self.kv_cache,
+                    cache_position = torch.tensor([prefill_lengths+l], dtype=torch.int, device=self.device)
+                )
 
             # Sample next token using sample module
             next_token = sample_next_token(
@@ -302,18 +377,7 @@ class InferEngine:
                 presence_penalty=presence_penalty
             )
 
-            #make next-step inputs
-            input_ids = next_token
-            image_values = None
-            attention_mask = torch.cat([attention_mask, torch.ones((1,1), dtype=torch.int64, device=self.device)], dim=-1)
-            # cache_position = torch.tensor([cache_position[-1]+1], dtype=torch.int64, device=self.device)
-            cache_position = torch.tensor([prefill_lengths+output_ids.shape[1]], dtype=torch.int, device=self.device)
-
             output_ids = torch.cat([output_ids, next_token], dim=-1)
-
-            # 检查是否生成了结束token
-            if next_token.item() == self.config.text_config.eos_token_id:
-                break
 
         #model reset
         self.kv_cache.clear()

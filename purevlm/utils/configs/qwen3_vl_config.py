@@ -2,6 +2,12 @@
 Qwen3-VL Model Configuration Classes
 """
 
+try:
+    import flash_attn
+    flash_attn_available = True
+except ImportError:
+    flash_attn_available = False
+
 class Qwen3VLVisionConfig:
     def __init__(
         self,
@@ -97,6 +103,9 @@ class Qwen3VLTextConfig:
         self.norm_topk_prob = norm_topk_prob
         self.num_experts = num_experts
         self.num_experts_per_tok = num_experts_per_tok
+
+        #system config
+        self.use_flash_attn = flash_attn_available
 
 
 

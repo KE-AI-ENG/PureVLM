@@ -5,12 +5,12 @@ import torch
 
 from purevlm.engine import InferEngine
 
-def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, max_generated_len=128, sys_prompts=None, topk=0, topp=1.0, repetition_penalty=1.0, presence_penalty=0.0, path_online_quant=""):
+def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, max_generated_len=128, sys_prompts=None, topk=0, topp=1.0, repetition_penalty=1.0, presence_penalty=0.0, path_online_quant="", use_cuda_graph=False):
     """推理示例，带 warmup 和 token 数统计"""
 
     # ===== 模型创建 =====
     model_start_time = time.time()
-    inf_engine_ = InferEngine(ckpt_path=model_path, path_online_quant=path_online_quant)
+    inf_engine_ = InferEngine(ckpt_path=model_path, path_online_quant=path_online_quant, use_cuda_graph=use_cuda_graph)
     torch.cuda.synchronize()
     model_end_time = time.time()
     model_load_time = model_end_time - model_start_time
@@ -115,6 +115,7 @@ if __name__ == "__main__":
     parser.add_argument('--topp', type=float, default = 1.0, help="topp sampling")
     parser.add_argument('--repetition-penalty', type=float, default=1.0, help="Repetition penalty")
     parser.add_argument('--presence-penalty', type=float, default=0.0, help="Presence penalty")
+    parser.add_argument('--use-cuda-graph', action='store_true', help="Use cuda graph for inference, default False")
     
     parser.add_argument("-q", '--using-online-quant', type=str, default="", help="Path for online quantization json. Not '' indicates using online quantization for base model, eg. Qwen3-VL-8B-Instruct")
     
@@ -127,7 +128,8 @@ if __name__ == "__main__":
         temp=args.temperature,
         max_generated_len=args.max_gen_len,
         sys_prompts=args.sys_prompt,
-        path_online_quant=args.using_online_quant
+        path_online_quant=args.using_online_quant,
+        use_cuda_graph=args.use_cuda_graph,
     )
 
     print(generated_text)

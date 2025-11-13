@@ -12,7 +12,9 @@ A pure VLM model inference engine.
 
 `cd examples`
 
-`python offline_demo.py -m /path/to/Qwen3-VL -p '帮我找下音箱' -t 0.0 -im ./jiaju-demo.png`
+`python offline_demo.py -m /path/to/Qwen3-VL -p '帮我找下音箱' -t 0.0 -im ./jiaju-demo.png --use-cuda-graph`
+
+If use cuda graph, Please keep flash-attention installed.
 
 To use online quantization, please add `-q /path/to/quant/json`
 

@@ -8,9 +8,8 @@ import torch.nn as nn
 
 try:
     import flash_attn
-    flash_attn_available = True
 except ImportError:
-    flash_attn_available = False
+    print("Flash Attention is not available, you can't use cuda graph")
 
 import purevlm.layer as L
 from purevlm.utils.configs.qwen3_vl_config import Qwen3VLTextConfig
@@ -109,7 +108,7 @@ class TextRotaryEmbedding:
         self.mrope_section = config.rope_scaling.get("mrope_section", [24, 20, 20])
 
         # 预计算 sin 和 cos
-        if flash_attn_available:
+        if self.config.use_flash_attn:
             self._precompute_mrope(device)
 
     def _precompute_mrope(self, device, max_seq_len=8192):
@@ -254,7 +253,7 @@ class TextAttention:
         key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape))
         value_states = self.v_proj(hidden_states).view(hidden_shape)
 
-        if flash_attn_available:
+        if self.config.use_flash_attn:
             attn_output = flash_attn.flash_attn_with_kvcache(
                     query_states,
                     past_key_values.key_states[self.layer_idx],
@@ -437,13 +436,14 @@ class TextModel:
         super().__init__()
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
+        self.config = config
 
         self.embed_tokens = L.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         self.layers = [TextDecoderLayer(config, layer_idx, quant_config=quant_config) for layer_idx in range(config.num_hidden_layers)]
         self.norm = L.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = TextRotaryEmbedding(config=config)
 
-    def forward(
+    def forward_prefill(
         self,
         input_ids: Optional[torch.IntTensor] = None,
         position_ids: Optional[torch.IntTensor] = None,
@@ -468,7 +468,7 @@ class TextModel:
         hidden_states = inputs_embeds
 
         # create position embeddings to be shared across the decoder layers
-        if flash_attn_available:
+        if self.config.use_flash_attn:
             position_embeddings = [self.rotary_emb.cached_cos.to(hidden_states.dtype),
                                     self.rotary_emb.cached_sin.to(hidden_states.dtype)]
         else:
@@ -492,6 +492,37 @@ class TextModel:
                     visual_pos_masks,
                     deepstack_visual_embeds[layer_idx],
                 )
+
+        hidden_states = self.norm(hidden_states)
+
+        return hidden_states
+
+    def forward_decode(
+        self,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[KVCache] = None,
+        cache_position: Optional[torch.IntTensor] = None,
+    ):
+
+        hidden_states = inputs_embeds
+
+        # create position embeddings to be shared across the decoder layers
+        if self.config.use_flash_attn:
+            position_embeddings = [self.rotary_emb.cached_cos.to(hidden_states.dtype),
+                                    self.rotary_emb.cached_sin.to(hidden_states.dtype)]
+        else:
+            position_embeddings = self.rotary_emb(hidden_states, position_ids)
+
+        # decoder layers
+        for layer_idx, decoder_layer in enumerate(self.layers):
+            layer_outputs = decoder_layer(
+                hidden_states,
+                past_key_values=past_key_values,
+                cache_position=cache_position,
+                position_embeddings=position_embeddings,
+            )
+            hidden_states = layer_outputs
 
         hidden_states = self.norm(hidden_states)
 

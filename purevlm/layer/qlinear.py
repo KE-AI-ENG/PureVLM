@@ -220,8 +220,6 @@ class QLinear:
         reshaped_x = input.reshape(-1, input.shape[-1])
         out_shape = input.shape[:-1] + (output_size_per_partition, )
 
-        use_atomic_add = False
-
         output = gptq_marlin_gemm(reshaped_x,
                                     None,
                                     weight,
@@ -237,7 +235,7 @@ class QLinear:
                                     size_n=output_size_per_partition,
                                     size_k=input_size_per_partition,
                                     is_k_full=is_k_full,
-                                    use_atomic_add=use_atomic_add,
+                                    use_atomic_add=False,
                                     use_fp32_reduce=use_fp32_reduce,
                                     is_zp_float=False)
 

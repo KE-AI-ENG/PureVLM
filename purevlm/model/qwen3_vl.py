@@ -191,7 +191,7 @@ class Qwen3VLModel:
         image_embeds = torch.split(image_embeds, split_sizes)
         return image_embeds, deepstack_image_embeds
 
-    def forward(
+    def forward_prefill(
         self,
         input_ids: torch.LongTensor = None,
         past_key_values: Optional[KVCache] = None,
@@ -241,7 +241,7 @@ class Qwen3VLModel:
                             .repeat_interleave(batch_size // self.rope_deltas.shape[0], dim=0)  # repeat for batch
                             .unsqueeze(0).expand(3, -1, -1)) # expand for 3 dims
 
-        outputs = self.language_model.forward(
+        outputs = self.language_model.forward_prefill(
             input_ids=None,
             position_ids=position_ids,
             past_key_values=past_key_values,
@@ -252,7 +252,31 @@ class Qwen3VLModel:
         )
 
         return outputs
+    
+    def forward_decode(
+        self,
+        input_ids: torch.LongTensor = None,
+        past_key_values: Optional[KVCache] = None,
+        cache_position: Optional[torch.LongTensor] = None,
+    ):
+        inputs_embeds = self.language_model.embed_tokens(input_ids)
 
+        if self.config.text_config.use_flash_attn:
+            position_ids = None
+        else:
+            batch_size, seq_length, _ = inputs_embeds.shape
+            position_ids = ((cache_position[0] + self.rope_deltas)
+                            .repeat_interleave(batch_size // self.rope_deltas.shape[0], dim=0)  # repeat for batch
+                            .unsqueeze(0).expand(3, -1, -1)) # expand for 3 dims
+
+        outputs = self.language_model.forward_decode(
+            inputs_embeds=inputs_embeds,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            cache_position=cache_position,
+        )
+
+        return outputs
 
 class Qwen3VLForCausalLM:
     """用于因果语言建模的Qwen3-VL模型"""
@@ -269,7 +293,7 @@ class Qwen3VLForCausalLM:
             temporal_patch_size=config.vision_config.temporal_patch_size,
         )
 
-    def forward(
+    def forward_prefill(
             self,
             input_ids: torch.LongTensor = None,
             past_key_values: Optional[KVCache] = None,
@@ -278,7 +302,7 @@ class Qwen3VLForCausalLM:
             cache_position: Optional[torch.LongTensor] = None
     ) -> Tensor:
 
-        outputs = self.model.forward(
+        outputs = self.model.forward_prefill(
             input_ids=input_ids,
             pixel_values=pixel_values,
             image_grid_thw=image_grid_thw,
@@ -288,5 +312,22 @@ class Qwen3VLForCausalLM:
 
         last_hidden_states = outputs[:, -1, :] #get last hidden_states
         logits = self.lm_head(last_hidden_states)
+
+        return logits
+    
+    def forward_decode(
+            self,
+            input_ids: torch.LongTensor = None,
+            past_key_values: Optional[KVCache] = None,
+            cache_position: Optional[torch.LongTensor] = None
+    ) -> Tensor:
+
+        outputs = self.model.forward_decode(
+            input_ids=input_ids,
+            past_key_values=past_key_values,
+            cache_position=cache_position,
+        )
+
+        logits = self.lm_head(outputs.squeeze(1))  # outputs is of shape (batch_size, 1, hidden_size)
 
         return logits

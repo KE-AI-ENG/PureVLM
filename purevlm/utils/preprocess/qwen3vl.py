@@ -7,12 +7,6 @@ import torch
 from typing import Optional
 from torchvision.transforms.v2 import functional as F
 
-try:
-    import flash_attn
-    flash_attn_available = True
-except ImportError:
-    flash_attn_available = False
-
 class Qwen3VLProcessor:
     """Processor for Qwen3-VL model that handles both image processing and input preparation"""
 
@@ -218,10 +212,5 @@ class Qwen3VLProcessor:
         text_inputs = self.tokenizer(text)
 
         input_ids = torch.tensor(text_inputs.input_ids, dtype=torch.int64, device=device)
-        attention_mask = torch.tensor(text_inputs.attention_mask, dtype=torch.int64, device=device)
-        if flash_attn_available:
-            cache_position = torch.tensor([0], dtype=torch.int, device=device)
-        else:
-            cache_position = torch.tensor([i for i in range(input_ids.shape[-1])], dtype=torch.int, device=device)
 
-        return input_ids, pixel_values, image_grid_thw, attention_mask, cache_position
+        return input_ids, pixel_values, image_grid_thw

@@ -6,6 +6,12 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
+try:
+    import flash_attn
+    flash_attn_available = True
+except ImportError:
+    flash_attn_available = False
+
 import purevlm.layer as L
 from purevlm.utils.configs.qwen3_vl_config import Qwen3VLTextConfig
 
@@ -19,19 +25,19 @@ class KVCache:
 
     def allocate(self, batch_size = 1, max_len=None, dtype=torch.bfloat16, device="cuda"):
         self.max_cache_len = self.max_seq_len if max_len is None else max_len
-        self.key_states = [torch.zeros((batch_size, self.head_num, self.max_cache_len, self.head_dim), dtype=dtype, device=device) for i in range(self.layer_num)]
-        self.value_states = [torch.zeros((batch_size, self.head_num, self.max_cache_len, self.head_dim), dtype=dtype, device=device) for i in range(self.layer_num)]
+        self.key_states = [torch.zeros((batch_size, self.max_cache_len, self.head_num, self.head_dim), dtype=dtype, device=device) for i in range(self.layer_num)]
+        self.value_states = [torch.zeros((batch_size, self.max_cache_len, self.head_num, self.head_dim), dtype=dtype, device=device) for i in range(self.layer_num)]
 
     def update(self, key_states, value_states, layer_idx, cache_position):
-        self.key_states[layer_idx].index_copy_(2, cache_position, key_states)
-        self.value_states[layer_idx].index_copy_(2, cache_position, value_states)
+        self.key_states[layer_idx].index_copy_(1, cache_position.to(torch.int64), key_states)
+        self.value_states[layer_idx].index_copy_(1, cache_position.to(torch.int64), value_states)
 
         # Only update cur_seq_len at layer 0
         if layer_idx == 0:
             self.cur_seq_len = cache_position[-1].item() + 1
 
-        return (self.key_states[layer_idx][:, :, :self.cur_seq_len, :],
-                self.value_states[layer_idx][:, :, :self.cur_seq_len, :])
+        return (self.key_states[layer_idx][:, :self.cur_seq_len, :, :],
+                self.value_states[layer_idx][:, :self.cur_seq_len, :, :])
 
     def get_seq_length(self):
         return self.cur_seq_len
@@ -101,6 +107,39 @@ class TextRotaryEmbedding:
         # self.original_inv_freq = self.inv_freq
 
         self.mrope_section = config.rope_scaling.get("mrope_section", [24, 20, 20])
+
+        # 预计算 sin 和 cos
+        if flash_attn_available:
+            self._precompute_mrope(device)
+
+    def _precompute_mrope(self, device, max_seq_len=8192):
+        """
+        预计算最大长度的 sin 和 cos
+        """
+        # 生成位置 ID
+        pos_ids = torch.arange(max_seq_len, device=device, dtype=torch.float)
+
+        # inv_freq 展开成 (3, 1, dim/2, 1)
+        inv_freq_expanded = self.inv_freq[None, None, :, None].float().expand(3, 1, -1, 1)
+
+        # pos_ids 展开成 (3, seq_len, 1, 1)
+        pos_ids_expanded = pos_ids[None, :, None, None].expand(3, -1, 1, 1)
+
+        # 计算频率 freqs: (3, seq_len, 1, dim/2)
+        freqs = (inv_freq_expanded @ pos_ids_expanded).transpose(2, 3)
+
+        # 应用 MRoPE 交错
+        freqs = self.apply_interleaved_mrope(freqs, self.mrope_section)
+
+        # 拼接成完整维度 (3, seq_len, 1, dim)
+        emb = torch.cat((freqs, freqs), dim=-1)
+
+        # 计算 cos 和 sin
+        cos = emb.cos() * self.attention_scaling
+        sin = emb.sin() * self.attention_scaling
+
+        self.cached_cos = cos.squeeze(1)[:, :(self.config.head_dim // 2)].to("cuda")
+        self.cached_sin = sin.squeeze(1)[:, :(self.config.head_dim // 2)].to("cuda")
 
     def apply_interleaved_mrope(self, freqs, mrope_section):
         """Apply interleaved MRoPE to 3D rotary embeddings.
@@ -182,8 +221,6 @@ class TextAttention:
         self.head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
         self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
         self.scaling = self.head_dim**-0.5
-        self.attention_dropout = config.attention_dropout
-        self.is_causal = True
 
         self.q_proj = L.QLinear(
             config.hidden_size, config.num_attention_heads * self.head_dim, bias=config.attention_bias, quant_config=quant_config
@@ -208,37 +245,53 @@ class TextAttention:
         position_embeddings: tuple[torch.Tensor, torch.Tensor],
         attention_mask: Optional[torch.Tensor],
         past_key_values: Optional[KVCache] = None,
-        cache_position: Optional[torch.LongTensor] = None,
+        cache_position: Optional[torch.IntTensor] = None,
     ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
 
         query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape))
         key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape))
-        value_states = self.v_proj(hidden_states)
+        value_states = self.v_proj(hidden_states).view(hidden_shape)
 
-        L.RotEmb(query_states, key_states, self.head_dim, position_embeddings, is_neox=True)
+        if flash_attn_available:
+            attn_output = flash_attn.flash_attn_with_kvcache(
+                    query_states,
+                    past_key_values.key_states[self.layer_idx],
+                    past_key_values.value_states[self.layer_idx],
+                    key_states,
+                    value_states,
+                    rotary_cos=position_embeddings[0],
+                    rotary_sin=position_embeddings[1],
+                    cache_seqlens=cache_position,
+                    cache_batch_idx=None,
+                    cache_leftpad=None,
+                    block_table=None,
+                    causal=True,
+                    window_size=(-1, -1),
+                    rotary_interleaved=False,
+            )
+            attn_output = attn_output.reshape(*input_shape, -1)
+        else:
+            L.RotEmb(query_states, key_states, self.head_dim, position_embeddings, is_neox=True)
+            if past_key_values is not None:
+                # sin and cos are specific to RoPE models; cache_position needed for the static cache
+                #cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+                key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_position)
+            query_states = query_states.transpose(1, 2)
+            key_states = key_states.transpose(1, 2)
+            value_states = value_states.transpose(1, 2)
+            attn_output = torch.nn.functional.scaled_dot_product_attention(
+                query_states,
+                key_states,
+                value_states,
+                attention_mask,
+                scale=self.scaling,
+                is_causal = query_states.shape[2] > 1 and attention_mask is None,
+                enable_gqa = True
+            )
+            attn_output = attn_output.transpose(1,2).reshape(*input_shape, -1).contiguous()
 
-        query_states = query_states.transpose(1, 2)
-        key_states = key_states.transpose(1, 2)
-        value_states = value_states.view(*input_shape, -1, self.head_dim).transpose(1, 2)
-
-        if past_key_values is not None:
-            # sin and cos are specific to RoPE models; cache_position needed for the static cache
-            #cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-            key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_position)
-
-        attn_output = torch.nn.functional.scaled_dot_product_attention(
-            query_states,
-            key_states,
-            value_states,
-            attention_mask,
-            scale=self.scaling,
-            is_causal = query_states.shape[2] > 1 and attention_mask is None,
-            enable_gqa = True
-        )
-
-        attn_output = attn_output.transpose(1,2).reshape(*input_shape, -1).contiguous()
         attn_output = self.o_proj(attn_output)
         return attn_output
 
@@ -356,7 +409,7 @@ class TextDecoderLayer:
         position_embeddings: tuple[torch.Tensor, torch.Tensor],
         attention_mask: Optional[torch.Tensor] = None,
         past_key_values: Optional[KVCache] = None,
-        cache_position: Optional[torch.LongTensor] = None,
+        cache_position: Optional[torch.IntTensor] = None,
     ) -> torch.Tensor:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
@@ -392,11 +445,11 @@ class TextModel:
 
     def forward(
         self,
-        input_ids: Optional[torch.LongTensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
+        input_ids: Optional[torch.IntTensor] = None,
+        position_ids: Optional[torch.IntTensor] = None,
         past_key_values: Optional[KVCache] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
-        cache_position: Optional[torch.LongTensor] = None,
+        cache_position: Optional[torch.IntTensor] = None,
         # args for deepstack
         visual_pos_masks: Optional[torch.Tensor] = None,
         deepstack_visual_embeds: Optional[list[torch.Tensor]] = None,
@@ -415,7 +468,11 @@ class TextModel:
         hidden_states = inputs_embeds
 
         # create position embeddings to be shared across the decoder layers
-        position_embeddings = self.rotary_emb(hidden_states, position_ids)
+        if flash_attn_available:
+            position_embeddings = [self.rotary_emb.cached_cos.to(hidden_states.dtype),
+                                    self.rotary_emb.cached_sin.to(hidden_states.dtype)]
+        else:
+            position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         # decoder layers
         for layer_idx, decoder_layer in enumerate(self.layers):

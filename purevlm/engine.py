@@ -306,7 +306,8 @@ class InferEngine:
             input_ids = next_token
             image_values = None
             attention_mask = torch.cat([attention_mask, torch.ones((1,1), dtype=torch.int64, device=self.device)], dim=-1)
-            cache_position = torch.tensor([cache_position[-1]+1], dtype=torch.int64, device=self.device)
+            # cache_position = torch.tensor([cache_position[-1]+1], dtype=torch.int64, device=self.device)
+            cache_position = torch.tensor([prefill_lengths+output_ids.shape[1]], dtype=torch.int, device=self.device)
 
             output_ids = torch.cat([output_ids, next_token], dim=-1)
 

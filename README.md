@@ -1,7 +1,9 @@
 A vision-language-model (VLM) inference engine. Particularly suitable for running on edge computing platforms(Nvidia Jetson AGX Thor/Orin).
 
 For our test, the performance is comparable to mainstream frameworks(vLLM or SGLang). 
- - Qwen3-VL-8B: decode throughput(batch=1, in nvidia-H20): ~160 tok/s(w16a16), ~180 tok/s(w4a16)
+ - batch=1, input-image:2048x1365, in nvidia-H20
+ - [Qwen3-VL-8B](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct) decode throughput: ~160 tok/s(w16a16), ~180 tok/s(w4a16)
+ - [Qwen3-VL-2B](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct) decode throughput: ~330 tok/s(w16a16), ~400 tok/s(w4a16)
 
 ## Install
 
@@ -39,7 +41,11 @@ If you wish to use cuda-graph to get more performance improve, Please install [F
 
 If use cuda graph, Please keep flash-attention installed.
 
-To use online quantization, please add `-q /path/to/quant/json`
+ - **Quantization:**
+
+  - Support w4a16 awq quantization, you can use [awq-model](https://huggingface.co/cpatonn/Qwen3-VL-8B-Instruct-AWQ-4bit) directly or use online quantization. 
+
+  - If you use online quantization, please add `-q ./online_quantization_marlin.json`
 
 ### server-client-mode
 

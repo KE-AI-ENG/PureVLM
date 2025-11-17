@@ -13,6 +13,7 @@ except ImportError:
 
 import purevlm.layer as L
 from purevlm.utils.configs.qwen3_vl_config import Qwen3VLTextConfig
+from purevlm.utils.configs.qwen2_5_vl_config import Qwen2_5_VLConfig
 
 class KVCache:
     def __init__(self, config):
@@ -210,7 +211,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     return q_embed, k_embed
 
 
-class TextAttention:
+class Qwen3TextAttention:
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: Qwen3VLTextConfig, layer_idx: int, quant_config=None):
@@ -294,6 +295,91 @@ class TextAttention:
         attn_output = self.o_proj(attn_output)
         return attn_output
 
+class Qwen2_5_TextAttention:
+    """Multi-headed attention from 'Attention Is All You Need' paper"""
+
+    def __init__(self, config: Qwen2_5_VLConfig, layer_idx: int, quant_config=None):
+        super().__init__()
+        self.config = config
+        self.layer_idx = layer_idx
+        self.hidden_size = config.hidden_size
+        self.num_heads = config.num_attention_heads
+        self.head_dim = self.hidden_size // self.num_heads
+        self.num_key_value_heads = config.num_key_value_heads
+        self.num_key_value_groups = self.num_heads // self.num_key_value_heads
+        self.is_causal = True
+        self.attention_dropout = config.attention_dropout
+        # self.rope_parameters = config.rope_parameters
+        self.scaling = self.head_dim**-0.5
+
+        self.q_proj = L.QLinear(
+            config.hidden_size, config.num_attention_heads * self.head_dim, bias=True, quant_config=quant_config
+        )
+        self.k_proj = L.QLinear(
+            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=True, quant_config=quant_config
+        )
+        self.v_proj = L.QLinear(
+            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=True, quant_config=quant_config
+        )
+        self.o_proj = L.QLinear(
+            config.num_attention_heads * self.head_dim, config.hidden_size, bias=True, quant_config=quant_config
+        )
+
+    def __call__(
+        self,
+        hidden_states: torch.Tensor,
+        position_embeddings: tuple[torch.Tensor, torch.Tensor],
+        attention_mask: Optional[torch.Tensor],
+        past_key_values: Optional[KVCache] = None,
+        cache_position: Optional[torch.IntTensor] = None,
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+        input_shape = hidden_states.shape[:-1]
+        hidden_shape = (*input_shape, -1, self.head_dim)
+
+        query_states = self.q_proj(hidden_states).view(hidden_shape)
+        key_states = self.k_proj(hidden_states).view(hidden_shape)
+        value_states = self.v_proj(hidden_states).view(hidden_shape)
+
+        if self.config.use_flash_attn:
+            attn_output = flash_attn.flash_attn_with_kvcache(
+                    query_states,
+                    past_key_values.key_states[self.layer_idx],
+                    past_key_values.value_states[self.layer_idx],
+                    key_states,
+                    value_states,
+                    rotary_cos=position_embeddings[0],
+                    rotary_sin=position_embeddings[1],
+                    cache_seqlens=cache_position,
+                    cache_batch_idx=None,
+                    cache_leftpad=None,
+                    block_table=None,
+                    causal=True,
+                    window_size=(-1, -1),
+                    rotary_interleaved=False,
+            )
+            attn_output = attn_output.reshape(*input_shape, -1)
+        else:
+            L.RotEmb(query_states, key_states, self.head_dim, position_embeddings, is_neox=True)
+            if past_key_values is not None:
+                # sin and cos are specific to RoPE models; cache_position needed for the static cache
+                #cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+                key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_position)
+            query_states = query_states.transpose(1, 2)
+            key_states = key_states.transpose(1, 2)
+            value_states = value_states.transpose(1, 2)
+            attn_output = torch.nn.functional.scaled_dot_product_attention(
+                query_states,
+                key_states,
+                value_states,
+                attention_mask,
+                scale=self.scaling,
+                is_causal = query_states.shape[2] > 1 and attention_mask is None,
+                enable_gqa = True
+            )
+            attn_output = attn_output.transpose(1,2).reshape(*input_shape, -1).contiguous()
+
+        attn_output = self.o_proj(attn_output)
+        return attn_output
 
 class TextMLP:
     def __init__(self, config, quant_config=None):
@@ -387,7 +473,10 @@ class TextDecoderLayer:
         super().__init__()
         self.hidden_size = config.hidden_size
 
-        self.self_attn = TextAttention(config=config, layer_idx=layer_idx, quant_config=quant_config)
+        if "qwen3_vl" in config.model_type:
+            self.self_attn = Qwen3TextAttention(config=config, layer_idx=layer_idx, quant_config=quant_config)
+        else:
+            self.self_attn = Qwen2_5_TextAttention(config=config, layer_idx=layer_idx, quant_config=quant_config)
 
         if config.num_experts is None: #dense model
             self.mlp = TextMLP(config, quant_config=quant_config)

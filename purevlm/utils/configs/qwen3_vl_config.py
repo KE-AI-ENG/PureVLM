@@ -2,11 +2,7 @@
 Qwen3-VL Model Configuration Classes
 """
 
-try:
-    import flash_attn
-    flash_attn_available = True
-except ImportError:
-    flash_attn_available = False
+from purevlm.utils import flash_attn_available
 
 class Qwen3VLVisionConfig:
     def __init__(
@@ -80,6 +76,8 @@ class Qwen3VLTextConfig:
         self.num_attention_heads = num_attention_heads
         self.eos_token_id = eos_token_id
 
+        self.model_type = model_type
+
         # for backward compatibility
         if num_key_value_heads is None:
             num_key_value_heads = num_attention_heads
@@ -108,7 +106,6 @@ class Qwen3VLTextConfig:
         self.use_flash_attn = flash_attn_available
 
 
-
 class Qwen3VLConfig:
     """Qwen3-VL模型配置类"""
     def __init__(
@@ -135,3 +132,4 @@ class Qwen3VLConfig:
         self.video_token_id = video_token_id
         self.vision_start_token_id = vision_start_token_id
         self.vision_end_token_id = vision_end_token_id
+        self.model_type = model_type

@@ -45,9 +45,9 @@ messages = [
         "content": [
             {
                 "type": "image",
-                "image": "./jiaju-demo.png",
+                "image": "./demo.jpeg",
             },
-            {"type": "text", "text": "请帮我找下音响"},
+            {"type": "text", "text": "描述这张图片"},
         ],
         # "content": [
         #     {"type": "text", "text": "Who are you?"},

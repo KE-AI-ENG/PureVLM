@@ -136,11 +136,15 @@ class InferEngine:
 
         # create model and build kv_cache
         self.create_model(ckpt_path)
-        self.kv_cache = KVCache(self.config.text_config)
+        self.kv_cache = KVCache(self.config.text_config if hasattr(self.config, 'text_config') else self.config)
         self.kv_cache.allocate(batch_size=batch_size, max_len=max_seq_len, device=device, dtype=torch_dtype)
 
+        self.vocab_size = self.config.text_config.vocab_size if hasattr(self.config, 'text_config') else self.config.vocab_size
+        self.eos_token_id = self.config.text_config.eos_token_id if hasattr(self.config, 'text_config') else self.config.eos_token_id
+        self.use_flash_attn = self.config.text_config.use_flash_attn if hasattr(self.config, 'text_config') else self.config.use_flash_attn
+
         # CUDA Graph 相关
-        self.use_cuda_graph = use_cuda_graph and self.config.text_config.use_flash_attn
+        self.use_cuda_graph = use_cuda_graph and self.use_flash_attn
         self.decode_graph = None
         self.decode_static_input_ids = None
         self.decode_static_cache_position = None
@@ -192,6 +196,22 @@ class InferEngine:
 
         print(f"\n总共加载 {len(complete_state_dict)} 个参数")
 
+        def formart_ckpt_key_align_qwen3vl(state_dict):
+            """
+            按照qwen3-vl的格式修改键名
+            """
+            #qwen2.5-vl is different from qwen3-vl, the key has not "model.language_model." or "model.visual."
+            for key in list(state_dict.keys()):
+                if key.startswith("model."):
+                    new_key = key.replace("model.", "model.language_model.")
+                    state_dict[new_key] = state_dict.pop(key)
+                elif key.startswith("visual."):
+                    new_key = key.replace("visual.", "model.visual.")
+                    state_dict[new_key] = state_dict.pop(key)
+
+        if "qwen3_vl" not in self.config.model_type.lower():
+            formart_ckpt_key_align_qwen3vl(complete_state_dict)
+
         if 'lm_head.weight' not in complete_state_dict:
             complete_state_dict['lm_head.weight'] = complete_state_dict['model.language_model.embed_tokens.weight']
 
@@ -241,7 +261,34 @@ class InferEngine:
             )
             print(f"创建Qwen3VL模型成功")
             return config, model
+        elif "qwen2_5_vl" in arch_str:
+            from purevlm.utils.configs.qwen2_5_vl_config import Qwen2_5_VLConfig, Qwen2_5_VLVisionConfig
+            from purevlm.layer.quantization.quant_config import QuantizationConfig
+            from purevlm.model.qwen2_5_vl import Qwen2_5_VLForCausalLM
 
+            vision_config = Qwen2_5_VLVisionConfig(**config_dict.get('vision_config', {}))
+
+            if self.path_online_quant == "":
+                quantization_config = QuantizationConfig(**config_dict.get('quantization_config', {}))
+            else:
+                with open(self.path_online_quant, 'r', encoding='utf-8') as f:
+                    onl_q_config_dict = json.load(f)
+                quantization_config = QuantizationConfig(**onl_q_config_dict.get('quantization_config', {}))
+
+            config = Qwen2_5_VLConfig(
+                vision_config=vision_config,
+                quantization_config=quantization_config,
+                **{k: v for k, v in config_dict.items()
+                   if k not in ['vision_config', 'quantization_config']}
+            )
+
+            model = Qwen2_5_VLForCausalLM(
+                config,
+                tokenizer=self.tokenizer,
+                device=self.device,
+            )
+            print(f"创建Qwen2.5VL模型成功")
+            return config, model
         # === 未来支持其他模型 ===
         elif "llama" in arch_str:
             # TODO: 这里可以添加 LLaMAConfig + LLaMAForCausalLM 的创建逻辑
@@ -285,7 +332,7 @@ class InferEngine:
         # 1. 创建静态输入缓冲区
         self.decode_static_input_ids = torch.zeros((batch_size, 1), dtype=torch.int64, device=self.device)
         self.decode_static_cache_position = torch.tensor([0], dtype=torch.int, device=self.device)
-        self.static_output = torch.zeros((batch_size, self.config.text_config.vocab_size), dtype=self.torch_dtype, device=self.device)
+        self.static_output = torch.zeros((batch_size, self.vocab_size), dtype=self.torch_dtype, device=self.device)
 
         # 2. Warmup 一次，确保所有 kernel 已经加载
         _ = self.model.forward_decode(
@@ -313,7 +360,7 @@ class InferEngine:
 
         input_ids, image_values, image_grid_thw = self.model.processor.tokenize_inputs(images, prompts, self.config, self.device)
 
-        if self.config.text_config.use_flash_attn:
+        if self.use_flash_attn:
             cache_position = torch.tensor([0], dtype=torch.int, device=self.device)
         else:
             cache_position = torch.tensor([i for i in range(input_ids.shape[-1])], dtype=torch.int, device=self.device)
@@ -348,7 +395,7 @@ class InferEngine:
         for l in range(generated_len-1):
 
             # 检查是否生成了结束token
-            if next_token.item() == self.config.text_config.eos_token_id:
+            if next_token.item() == self.eos_token_id:
                 break
 
             if self.use_cuda_graph:

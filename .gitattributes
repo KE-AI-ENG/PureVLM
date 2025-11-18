@@ -1,4 +1,4 @@
-csrc/include/* linguist-generated
-csrc/flash_attn/* linguist-generated
-csrc/gptq_marlin/* linguist-generated
+csrc/include/** linguist-generated
+csrc/flash_attn/** linguist-generated
+csrc/gptq_marlin/** linguist-generated
 examples/stash/* linguist-generated

@@ -2,8 +2,6 @@
 Qwen2.5-VL Model Configuration Classes
 """
 
-from purevlm.utils import flash_attn_available
-
 class Qwen2_5_VLVisionConfig:
     def __init__(
         self,
@@ -120,6 +118,3 @@ class Qwen2_5_VLConfig:
 
         #moe config
         self.num_experts = None
-
-        #system config
-        self.use_flash_attn = flash_attn_available

@@ -261,13 +261,7 @@ class Qwen3VLModel:
     ):
         inputs_embeds = self.language_model.embed_tokens(input_ids)
 
-        if self.config.text_config.use_flash_attn:
-            position_ids = None
-        else:
-            batch_size, seq_length, _ = inputs_embeds.shape
-            position_ids = ((cache_position[0] + self.rope_deltas)
-                            .repeat_interleave(batch_size // self.rope_deltas.shape[0], dim=0)  # repeat for batch
-                            .unsqueeze(0).expand(3, -1, -1)) # expand for 3 dims
+        position_ids = None
 
         outputs = self.language_model.forward_decode(
             inputs_embeds=inputs_embeds,

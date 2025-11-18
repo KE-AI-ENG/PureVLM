@@ -18,4 +18,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("gptq_marlin_gemm", &gptq_marlin_gemm, "GPTQ Marlin GEMM operation");
     m.def("gptq_marlin_repack", &gptq_marlin_repack, "gptq_marlin_repack");
 
+    // attention-type-ops
+    m.def("fwd_kvcache", &mha_fwd_kvcache, "Forward pass, with KV-cache");
 }

@@ -7,13 +7,6 @@
 #include "scalar_type.hpp"
 
 ////////////////elementwise ops begin/////////////////
-// void int8_quant(torch::Tensor& out,
-//                             torch::Tensor const& input,
-//                             torch::Tensor& scales, c10::optional<torch::Tensor> const& azp);
-// void fp8_quant(
-//     torch::Tensor& out, torch::Tensor const& input, torch::Tensor& scale,
-//     c10::optional<torch::Tensor> const& scale_ub);
-
 void rms_norm(torch::Tensor& out,
               torch::Tensor& input,
               torch::Tensor& weight,
@@ -55,67 +48,26 @@ torch::Tensor gptq_marlin_gemm(
     bool is_zp_float);
 
 
-// #if (defined __CUDA_ARCH__ && __CUDA_ARCH__ >= 900 && __CUDA_ARCH__ < 1000) || \
-// (defined HOST_CUDA_ARCH && HOST_CUDA_ARCH >= 900 && HOST_CUDA_ARCH < 1000)
-// std::vector<torch::Tensor> 
-// flash_mha(torch::Tensor &q,         // batch_size x seqlen_q x num_heads x head_size
-//         const torch::Tensor &k,         // batch_size x seqlen_k x num_heads_k x head_size
-//         const torch::Tensor &v,         // batch_size x seqlen_k x num_heads_k x head_size
-//         const float softmax_scale,
-//         bool is_causal
-//         );
-// void fp8_scaled_mm_sm90(torch::Tensor& out, torch::Tensor const& mat_a,
-//                             torch::Tensor const& mat_b,
-//                             torch::Tensor const& scales_a,
-//                             torch::Tensor const& scales_b,
-//                             const torch::Dtype& out_dtype,
-//                             c10::optional<torch::Tensor> const& bias);
-
-// void int8_scaled_mm_sm90(torch::Tensor& out, torch::Tensor const& a,
-//                                      torch::Tensor const& b,
-//                                      torch::Tensor const& a_scales,
-//                                      torch::Tensor const& b_scales,
-//                                      torch::Tensor const& azp_adj,
-//                                      torch::Tensor const& azp,
-//                                      std::optional<torch::Tensor> const& bias);
-// #endif
-
-// #if (defined __CUDA_ARCH__ && __CUDA_ARCH__ >= 890 && __CUDA_ARCH__ < 900) || \
-// (defined HOST_CUDA_ARCH && HOST_CUDA_ARCH >= 890 && HOST_CUDA_ARCH < 900)
-// void fp8_scaled_mm_sm89(torch::Tensor& out, torch::Tensor const& mat_a,
-//                             torch::Tensor const& mat_b,
-//                             torch::Tensor const& scales_a,
-//                             torch::Tensor const& scales_b,
-//                             const torch::Dtype& out_dtype,
-//                             c10::optional<torch::Tensor> const& bias);
-
-// void int8_scaled_mm_sm89(torch::Tensor& out, torch::Tensor const& a,
-//                                 torch::Tensor const& b,
-//                                 torch::Tensor const& a_scales,
-//                                 torch::Tensor const& b_scales,
-//                                 torch::Tensor const& azp_adj,
-//                                 torch::Tensor const& azp,
-//                                 std::optional<torch::Tensor> const& bias);
-// #endif
-
-// #if (defined __CUDA_ARCH__ && __CUDA_ARCH__ >= 800 && __CUDA_ARCH__ < 890) || \
-// (defined HOST_CUDA_ARCH && HOST_CUDA_ARCH >= 800 && HOST_CUDA_ARCH < 890)
-// void int8_scaled_mm_sm80(torch::Tensor& out, torch::Tensor const& a,
-//                                 torch::Tensor const& b,
-//                                 torch::Tensor const& a_scales,
-//                                 torch::Tensor const& b_scales,
-//                                 torch::Tensor const& azp_adj,
-//                                 torch::Tensor const& azp,
-//                                 std::optional<torch::Tensor> const& bias);
-// #endif
-
-// #if (defined __CUDA_ARCH__ && __CUDA_ARCH__ >= 750 && __CUDA_ARCH__ < 800) || \
-// (defined HOST_CUDA_ARCH && HOST_CUDA_ARCH >= 750 && HOST_CUDA_ARCH < 800)
-// void int8_scaled_mm_sm75(torch::Tensor& out, torch::Tensor const& a,
-//                                 torch::Tensor const& b,
-//                                 torch::Tensor const& a_scales,
-//                                 torch::Tensor const& b_scales,
-//                                 torch::Tensor const& azp_adj,
-//                                 torch::Tensor const& azp,
-//                                 std::optional<torch::Tensor> const& bias);
-// #endif
+// attention
+std::vector<at::Tensor>
+mha_fwd_kvcache(at::Tensor &q,                 // batch_size x seqlen_q x num_heads x head_size
+                const at::Tensor &kcache,            // batch_size_c x seqlen_k x num_heads_k x head_size or num_blocks x page_block_size x num_heads_k x head_size if there's a block_table.
+                const at::Tensor &vcache,            // batch_size_c x seqlen_k x num_heads_k x head_size or num_blocks x page_block_size x num_heads_k x head_size if there's a block_table.
+                std::optional<const at::Tensor> &k_, // batch_size x seqlen_knew x num_heads_k x head_size
+                std::optional<const at::Tensor> &v_, // batch_size x seqlen_knew x num_heads_k x head_size
+                std::optional<const at::Tensor> &seqlens_k_, // batch_size
+                std::optional<const at::Tensor> &rotary_cos_, // seqlen_ro x (rotary_dim / 2)
+                std::optional<const at::Tensor> &rotary_sin_, // seqlen_ro x (rotary_dim / 2)
+                std::optional<const at::Tensor> &cache_batch_idx_, // indices to index into the KV cache
+                std::optional<const at::Tensor> &leftpad_k_, // batch_size
+                std::optional<at::Tensor> &block_table_, // batch_size x max_num_blocks_per_seq
+                std::optional<at::Tensor> &alibi_slopes_, // num_heads or batch_size x num_heads
+                std::optional<at::Tensor> &out_,             // batch_size x seqlen_q x num_heads x head_size
+                const float softmax_scale,
+                bool is_causal,
+                int window_size_left,
+                int window_size_right,
+                const float softcap,
+                bool is_rotary_interleaved,   // if true, rotary combines indices 0 & 1, else indices 0 & rotary_dim / 2
+                int num_splits
+                );

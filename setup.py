@@ -15,20 +15,11 @@ def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_
 
     compile_dicts['cuda_arch_v'] = GPU_Compute_Capability_Major*100+GPU_Compute_Capability_Minor*10
 
-    if 750 == compile_dicts['cuda_arch_v']: #Turing
-        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
-        compile_dicts['extra_compile_args'] = {
-            'nvcc': [
-                '-O3', 
-                "-std=c++17",
-                '--compiler-options', '-fPIC',
-                '-gencode=arch=compute_75, code=sm_75',
-            ]
-        }
-    elif 800 == compile_dicts['cuda_arch_v'] or 860 == compile_dicts['cuda_arch_v'] or 870 == compile_dicts['cuda_arch_v']: #Ampere
-        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"] \
+    compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"] \
         + get_files_list_in_path("csrc/gptq_marlin", "cu") \
         + get_files_list_in_path("csrc/flash_attn", "cu") + get_files_list_in_path("csrc/flash_attn", "cpp")
+
+    if 800 == compile_dicts['cuda_arch_v'] or 860 == compile_dicts['cuda_arch_v'] or 870 == compile_dicts['cuda_arch_v']: #Ampere
         compile_dicts['extra_compile_args'] = {
                                             'nvcc': [
                                                 # "-O3",    # can't use for marlin 
@@ -41,7 +32,6 @@ def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_
                                             ]
         }
     elif 890 == compile_dicts['cuda_arch_v']: #Ada Lovelace
-        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"]
         compile_dicts['extra_compile_args'] = {
             'nvcc': [
                 '-DNDEBUG',
@@ -52,9 +42,6 @@ def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_
             ]
         }
     elif 900 == compile_dicts['cuda_arch_v']: #Hopper
-        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"] \
-        + get_files_list_in_path("csrc/gptq_marlin", "cu") \
-        + get_files_list_in_path("csrc/flash_attn", "cu") + get_files_list_in_path("csrc/flash_attn", "cpp")
         compile_dicts['extra_compile_args'] = {
                                         'nvcc': [
                                                 "-DNDEBUG",
@@ -68,9 +55,6 @@ def gen_compile_args_from_compute_cap(GPU_Compute_Capability_Major, GPU_Compute_
             
         }
     elif 1100 == compile_dicts['cuda_arch_v']: #Blackwell
-        compile_dicts["sources"] = ['csrc/torch_bindings.cpp', "csrc/elmwise_ops.cu"] \
-        + get_files_list_in_path("csrc/gptq_marlin", "cu") \
-        + get_files_list_in_path("csrc/flash_attn", "cu") + get_files_list_in_path("csrc/flash_attn", "cpp")
         compile_dicts['extra_compile_args'] = {
                                             'nvcc': [
                                                 # "-O3",    # can't use for marlin 

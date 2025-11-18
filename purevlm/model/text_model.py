@@ -233,6 +233,8 @@ class Qwen3TextAttention:
             self.head_dim, eps=config.rms_norm_eps
         )  # thus post q_norm does not need reshape
 
+        self.flash_attn = L.FlashAttn()
+
     def __call__(
         self,
         hidden_states: torch.Tensor,
@@ -248,7 +250,7 @@ class Qwen3TextAttention:
         key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape))
         value_states = self.v_proj(hidden_states).view(hidden_shape)
 
-        attn_output = L.FlashAttn.flash_attn_with_kvcache(
+        attn_output = self.flash_attn.flash_attn_with_kvcache(
                     query_states,
                     past_key_values.key_states[self.layer_idx],
                     past_key_values.value_states[self.layer_idx],
@@ -298,6 +300,7 @@ class Qwen2_5_TextAttention:
         self.o_proj = L.QLinear(
             config.num_attention_heads * self.head_dim, config.hidden_size, bias=True, quant_config=quant_config
         )
+        self.flash_attn = L.FlashAttn()
 
     def __call__(
         self,
@@ -314,7 +317,7 @@ class Qwen2_5_TextAttention:
         key_states = self.k_proj(hidden_states).view(hidden_shape)
         value_states = self.v_proj(hidden_states).view(hidden_shape)
 
-        attn_output = L.FlashAttn.flash_attn_with_kvcache(
+        attn_output = self.flash_attn.flash_attn_with_kvcache(
                 query_states,
                 past_key_values.key_states[self.layer_idx],
                 past_key_values.value_states[self.layer_idx],

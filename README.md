@@ -18,8 +18,6 @@ For our test, the performance is comparable to mainstream frameworks(vLLM or SGL
 
 ## Install
 
-### Requirements
-
 **Requirements:**
 
 - CUDA toolkit

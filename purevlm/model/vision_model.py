@@ -128,6 +128,7 @@ class VisionAttention:
         self.config = config
         self.attention_dropout = 0.0
         self.is_causal = False
+        self.flash_attn = L.FlashAttn()
 
     def __call__(
         self,
@@ -142,9 +143,9 @@ class VisionAttention:
         )
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb_vision(query_states, key_states, cos, sin)
-
+        
         max_seqlen = (cu_seqlens[1:] - cu_seqlens[:-1]).max()
-        attn_output = L.FlashAttn.flash_attn_varlen_func(
+        attn_output = self.flash_attn.flash_attn_varlen_func(
             query_states,
             key_states,
             value_states,

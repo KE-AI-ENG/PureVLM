@@ -8,56 +8,6 @@ import purevlm.cuda_ops as cuda_ops
 def maybe_contiguous(x):
     return x.contiguous() if x is not None and x.stride(-1) != 1 else x
 
-def _flash_attn_varlen_forward(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    v: torch.Tensor,
-    cu_seqlens_q: torch.Tensor,
-    cu_seqlens_k: torch.Tensor,
-    max_seqlen_q: int,
-    max_seqlen_k: int,
-    dropout_p: float,
-    softmax_scale: float,
-    causal: bool,
-    window_size_left: int = -1,
-    window_size_right: int = -1,
-    softcap: float = 0.0,
-    alibi_slopes: Optional[torch.Tensor] = None,
-    return_softmax: bool = False,
-    block_table: Optional[torch.Tensor] = None,
-    leftpad_k: Optional[torch.Tensor] = None,
-    seqused_k: Optional[torch.Tensor] = None,
-    zero_tensors: bool = False,
-):
-    q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
-    out, softmax_lse, S_dmask, rng_state = cuda_ops.varlen_fwd(
-        q,
-        k,
-        v,
-        None,
-        cu_seqlens_q,
-        cu_seqlens_k,
-        seqused_k,
-        leftpad_k,
-        block_table,
-        alibi_slopes,
-        max_seqlen_q,
-        max_seqlen_k,
-        dropout_p,
-        softmax_scale,
-        zero_tensors,
-        causal,
-        window_size_left,
-        window_size_right,
-        softcap,
-        return_softmax,
-        None,
-    )
-    # if out.isnan().any() or softmax_lse.isnan().any():
-    #     breakpoint()
-    return out, softmax_lse, S_dmask, rng_state
-
-
 class FlashAttn:
     @staticmethod
     def flash_attn_varlen_func(
@@ -141,23 +91,29 @@ class FlashAttn:
             k = torch.nn.functional.pad(k, [0, 8 - head_size_og % 8])
             v = torch.nn.functional.pad(v, [0, 8 - head_size_og % 8])
 
-        out_padded, softmax_lse, S_dmask, rng_state = _flash_attn_varlen_forward(
+        q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
+        out_padded, softmax_lse, S_dmask, rng_state = cuda_ops.varlen_fwd(
             q,
             k,
             v,
+            None,
             cu_seqlens_q,
             cu_seqlens_k,
+            None,
+            None,
+            block_table,
+            alibi_slopes,
             max_seqlen_q,
             max_seqlen_k,
             dropout_p,
             softmax_scale,
-            causal=causal,
-            window_size_left=window_size[0],
-            window_size_right=window_size[1],
-            softcap=softcap,
-            alibi_slopes=alibi_slopes,
-            return_softmax=return_attn_probs and dropout_p > 0,
-            block_table=block_table,
+            False,
+            causal,
+            window_size[0],
+            window_size[1],
+            softcap,
+            return_attn_probs and dropout_p > 0,
+            None,
         )
 
         out = out_padded[..., :head_size_og]

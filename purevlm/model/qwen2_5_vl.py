@@ -9,7 +9,7 @@ from torch import Tensor
 
 from purevlm.utils.preprocess.qwen3vl import Qwen3VLProcessor
 import purevlm.layer as L
-from purevlm.model.vision_model import Qwen3VisionModel
+from purevlm.model.vision_model import Qwen2_5_VisionModel
 from purevlm.model.text_model import TextModel, KVCache
 
 def get_rope_index(
@@ -166,30 +166,30 @@ def get_placeholder_mask(
     return special_image_mask
 
 
-class Qwen3VLModel:
-    """Qwen3-VL主模型"""
+class Qwen2_5_VLModel:
+    """Qwen2.5-VL主模型"""
     def __init__(self, config, device='cuda'):
         super().__init__()
-        self.visual = Qwen3VisionModel(config.vision_config, device=device, quant_config=config.quantization_config)
-        self.language_model = TextModel(config.text_config, quant_config=config.quantization_config)
+        self.visual = Qwen2_5_VisionModel(config.vision_config, device=device, quant_config=config.quantization_config)
+        self.language_model = TextModel(config, quant_config=config.quantization_config)
         self.rope_deltas = None  # cache rope_deltas here
         self.config = config
 
     def get_image_features(self, pixel_values: torch.FloatTensor, image_grid_thw: Optional[torch.LongTensor] = None):
-        """Encode images into continuous embeddings.
+        """
+        Encodes images into continuous embeddings that can be forwarded to the language model.
 
         Args:
-            pixel_values: Image pixel values
-            image_grid_thw: Image grid dimensions (temporal, height, width)
-
-        Returns:
-            Tuple of (image_embeds, deepstack_image_embeds)
+            pixel_values (`torch.FloatTensor` of shape `(batch_size, num_channels, image_size, image_size)`):
+                The tensors corresponding to the input images.
+            image_grid_thw (`torch.LongTensor` of shape `(num_images, 3)`, *optional*):
+                The temporal, height and width of feature shape of each image in LLM.
         """
         pixel_values = pixel_values.type(self.visual.dtype)
-        image_embeds, deepstack_image_embeds = self.visual.forward(pixel_values, grid_thw=image_grid_thw)
+        image_embeds = self.visual.forward(pixel_values, grid_thw=image_grid_thw)
         split_sizes = (image_grid_thw.prod(-1) // self.visual.spatial_merge_size**2).tolist()
         image_embeds = torch.split(image_embeds, split_sizes)
-        return image_embeds, deepstack_image_embeds
+        return image_embeds
 
     def forward_prefill(
         self,
@@ -208,24 +208,13 @@ class Qwen3VLModel:
         image_mask = None
 
         if pixel_values is not None:
-            image_embeds, deepstack_image_embeds = self.get_image_features(pixel_values, image_grid_thw)
+            image_embeds = self.get_image_features(pixel_values, image_grid_thw)
             image_embeds = torch.cat(image_embeds, dim=0).to(inputs_embeds.device, inputs_embeds.dtype)
             image_mask = get_placeholder_mask(
                 self.config, input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds
             )
             inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
-        visual_pos_masks = None
-        deepstack_visual_embeds = None
-        if image_mask is not None:
-            image_mask = image_mask[..., 0]
-            visual_pos_masks = image_mask
-            deepstack_visual_embeds = deepstack_image_embeds
-
-        # Calculate RoPE index once per generation in the pre-fill stage only.
-        # When compiling, we can't check tensor values thus we check only input length
-        # It is safe to assume that `length!=1` means we're in pre-fill because compiled
-        # models currently cannot do asssisted decoding
         if self.rope_deltas is None:
             position_ids, rope_deltas = get_rope_index(
                 self.config,
@@ -237,9 +226,14 @@ class Qwen3VLModel:
         # then use the prev pre-calculated rope-deltas to get the correct position ids
         else:
             batch_size, seq_length, _ = inputs_embeds.shape
-            position_ids = ((cache_position[0] + self.rope_deltas)
-                            .repeat_interleave(batch_size // self.rope_deltas.shape[0], dim=0)  # repeat for batch
-                            .unsqueeze(0).expand(3, -1, -1)) # expand for 3 dims
+            position_ids = torch.arange(seq_length, device=inputs_embeds.device)
+            position_ids = position_ids.view(1, 1, -1).expand(3, batch_size, -1)
+            if cache_position is not None:
+                delta = (cache_position[0] + self.rope_deltas).to(inputs_embeds.device)
+            else:
+                delta = torch.zeros((batch_size, seq_length), device=inputs_embeds.device)
+            delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=1)
+            position_ids = position_ids + delta.to(position_ids.device)
 
         outputs = self.language_model.forward_prefill(
             input_ids=None,
@@ -247,8 +241,6 @@ class Qwen3VLModel:
             past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
             cache_position=cache_position,
-            visual_pos_masks=visual_pos_masks,
-            deepstack_visual_embeds=deepstack_visual_embeds,
         )
 
         return outputs
@@ -261,7 +253,7 @@ class Qwen3VLModel:
     ):
         inputs_embeds = self.language_model.embed_tokens(input_ids)
 
-        if self.config.text_config.use_flash_attn:
+        if self.config.use_flash_attn:
             position_ids = None
         else:
             batch_size, seq_length, _ = inputs_embeds.shape
@@ -278,19 +270,22 @@ class Qwen3VLModel:
 
         return outputs
 
-class Qwen3VLForCausalLM:
-    """用于因果语言建模的Qwen3-VL模型"""
+class Qwen2_5_VLForCausalLM:
+    """用于因果语言建模的Qwen2.5-VL模型"""
     def __init__(self, config, tokenizer=None, device='cuda'):
         super().__init__()
-        self.model = Qwen3VLModel(config, device=device)
-        self.lm_head = L.QLinear(config.text_config.hidden_size, config.text_config.vocab_size, bias=False, quant_config=config.quantization_config)
+        self.model = Qwen2_5_VLModel(config, device=device)
+        self.lm_head = L.QLinear(config.hidden_size, config.vocab_size, bias=False, quant_config=config.quantization_config)
 
         # Create processor
         self.processor = Qwen3VLProcessor(
             tokenizer=tokenizer,
             patch_size=config.vision_config.patch_size,
             spatial_merge_size=config.vision_config.spatial_merge_size,
-            temporal_patch_size=config.vision_config.temporal_patch_size,
+            min_pixels=3136,
+            max_pixels=12845056,
+            image_mean=[i*255 for i in [0.48145466,0.4578275,0.40821073]],
+            image_std=[i*255 for i in [0.26862954,0.26130258,0.27577711]],
         )
 
     def forward_prefill(

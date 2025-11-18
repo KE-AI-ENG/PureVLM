@@ -1,5 +1,11 @@
 A vision-language-model (VLM) inference engine. Particularly suitable for running on edge computing platforms(Nvidia Jetson AGX Thor/Orin).
 
+## Supported Models
+
+- [Qwen3-VL](https://huggingface.co/collections/Qwen/qwen3-vl)
+- [Qwen2.5-VL](https://huggingface.co/collections/Qwen/qwen25-vl)
+- [Xiaomi-MiMo-VL-Miloco](https://huggingface.co/xiaomi-open-source/Xiaomi-MiMo-VL-Miloco-7B)
+
 For our test, the performance is comparable to mainstream frameworks(vLLM or SGLang). 
  - Jetson AGX orin (batch=1, input-image:800x477) Decode throughput:
     - [Qwen3-VL-8B](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct) 11tok/s(w16a16), 30tok/s(w4a16)
@@ -8,6 +14,7 @@ For our test, the performance is comparable to mainstream frameworks(vLLM or SGL
  - nvidia-H20 (batch=1, input-image:2048x1365) Decode throughput:
     - [Qwen3-VL-8B](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct) ~160 tok/s(w16a16), ~180 tok/s(w4a16)
     - [Qwen3-VL-2B](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct) ~330 tok/s(w16a16), ~400 tok/s(w4a16)
+    - [Xiaomi-Miloco-7B](https://huggingface.co/xiaomi-open-source/Xiaomi-MiMo-VL-Miloco-7B) ~180 tok/s(w16a16) ~coming soon(w4a16)
 
 ## Install
 

@@ -209,8 +209,7 @@ class Qwen3VLProcessor:
         if self.tokenizer is None:
             raise ValueError("Tokenizer must be set before calling prepare_inputs")
 
-        text_inputs = self.tokenizer(text)
-
-        input_ids = torch.tensor(text_inputs.input_ids, dtype=torch.int64, device=device)
+        encodings = self.tokenizer.encode_batch(text)
+        input_ids = torch.tensor([e.ids for e in encodings], dtype=torch.int64, device=device)
 
         return input_ids, pixel_values, image_grid_thw

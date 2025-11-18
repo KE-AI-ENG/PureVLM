@@ -82,12 +82,12 @@ class ChatCompletionResponse(BaseModel):
 
 # ==================== 辅助函数 ====================
 
-def load_model(model_dir: str, path_online_quant, max_seq_len: int = 4096, use_cuda_graph: bool = False) -> InferEngine:
+def load_model(model_dir: str, path_online_quant, max_seq_len: int = 4096, disable_cuda_graph: bool = False) -> InferEngine:
     """加载模型到全局变量"""
     global inf_engine_, model_path
     if inf_engine_ is None or model_path != model_dir:
         print(f"正在加载模型ckpt路径: {model_dir}")
-        inf_engine_ = InferEngine(ckpt_path=model_dir, max_seq_len=max_seq_len, path_online_quant=path_online_quant, use_cuda_graph=use_cuda_graph)
+        inf_engine_ = InferEngine(ckpt_path=model_dir, max_seq_len=max_seq_len, path_online_quant=path_online_quant, disable_cuda_graph=disable_cuda_graph)
         model_path = model_dir
         print("模型加载完成!")
     return inf_engine_
@@ -205,13 +205,11 @@ def generate_text(
             temperature=temperature,
             do_sample=do_sample
         )
-    
-    output_text = inf_engine_.tokenizer.batch_decode(
-        generated_ids, 
-        skip_special_tokens=True, 
-        clean_up_tokenization_spaces=False
+
+    output_text = inf_engine_.tokenizer.decode_batch(
+        generated_ids.tolist()
     )
-    
+
     return output_text[0] if output_text else "" , p_len, d_len
 
 # def estimate_tokens(text: str) -> int:
@@ -384,16 +382,33 @@ def main():
         help="max sequence length for inference, include prefill-prompt and decode-generated, default 4096"
     )
     parser.add_argument(
-        '--use-cuda-graph', 
+        '--disable-cuda-graph', 
         action='store_true', 
-        help="Use cuda graph for inference, default False"
+        help="Disable cuda graph for inference, default False"
     )
     
     args = parser.parse_args()
     
     # 加载模型
-    load_model(args.model_path, args.using_online_quant, max_seq_len=args.max_seq_len, use_cuda_graph=args.use_cuda_graph)
+    load_model(args.model_path, args.using_online_quant, max_seq_len=args.max_seq_len, disable_cuda_graph=args.disable_cuda_graph)
     
+    # 模型预热
+    global inf_engine_
+    if inf_engine_ is not None:
+        print("[Warmup] 开始执行模型预热...")
+        try:
+            warmup_prompt = "<|im_start|>system\n你是一个智能助手<|im_end|>\n<|im_start|>user\n你好<|im_end|>\n<|im_start|>assistant\n"
+            inf_engine_.generate(
+                prompts=warmup_prompt,
+                images=None,
+                generated_len=8,  # 生成少量 token 即可
+                temperature=0.0,
+                do_sample=False
+            )
+            print("[Warmup] 模型预热完成")
+        except Exception as e:
+            print(f"[Warmup] 预热失败: {e}")
+
     # 启动服务器
     print(f"\n启动 API Server:")
     print(f"  - 地址: http://{args.host}:{args.port}")

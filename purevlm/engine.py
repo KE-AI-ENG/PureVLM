@@ -3,7 +3,7 @@ import json
 from collections import OrderedDict
 
 import torch
-from transformers import AutoTokenizer
+from tokenizers import Tokenizer
 from safetensors import safe_open
 
 from purevlm.layer.qlinear import QLinear
@@ -124,7 +124,7 @@ def weight_loading(model, checkpoint, device='cuda'):
     return loaded_keys, failed_keys
 
 class InferEngine:
-    def __init__(self, ckpt_path = "", device="cuda", torch_dtype=torch.bfloat16, batch_size=1, max_seq_len=4096, path_online_quant="", use_cuda_graph=False):
+    def __init__(self, ckpt_path = "", device="cuda", torch_dtype=torch.bfloat16, batch_size=1, max_seq_len=4096, path_online_quant="", disable_cuda_graph=False):
         self.device = device
         self.torch_dtype = torch_dtype
         self.batch_size = batch_size
@@ -144,7 +144,7 @@ class InferEngine:
         self.use_flash_attn = self.config.text_config.use_flash_attn if hasattr(self.config, 'text_config') else self.config.use_flash_attn
 
         # CUDA Graph 相关
-        self.use_cuda_graph = use_cuda_graph and self.use_flash_attn
+        self.use_cuda_graph = (not disable_cuda_graph) and self.use_flash_attn
         self.decode_graph = None
         self.decode_static_input_ids = None
         self.decode_static_cache_position = None
@@ -309,7 +309,14 @@ class InferEngine:
         architectures = config_dict.get("architectures", [])
 
         # 加载 tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(model_dir)
+        self.tokenizer = Tokenizer.from_file(os.path.join(model_dir, "tokenizer.json"))
+        # 启用 padding（自动补齐到最长序列）
+        self.tokenizer.enable_padding(
+            pad_id=self.tokenizer.token_to_id("[PAD]") or 0,
+            pad_token="[PAD]"
+        )
+        # 启用截断（可选）
+        self.tokenizer.enable_truncation(max_length=4096)
 
         # 创建 Config 和 Model
         self.config, self.model = self._create_config_and_model(architectures, config_dict)

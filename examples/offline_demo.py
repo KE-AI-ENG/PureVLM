@@ -5,12 +5,12 @@ import torch
 
 from purevlm.engine import InferEngine
 
-def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, max_generated_len=128, sys_prompts=None, topk=0, topp=1.0, repetition_penalty=1.0, presence_penalty=0.0, path_online_quant="", use_cuda_graph=False):
+def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, max_generated_len=128, sys_prompts=None, topk=0, topp=1.0, repetition_penalty=1.0, presence_penalty=0.0, path_online_quant="", disable_cuda_graph=False):
     """推理示例，带 warmup 和 token 数统计"""
 
     # ===== 模型创建 =====
     model_start_time = time.time()
-    inf_engine_ = InferEngine(ckpt_path=model_path, path_online_quant=path_online_quant, use_cuda_graph=use_cuda_graph)
+    inf_engine_ = InferEngine(ckpt_path=model_path, path_online_quant=path_online_quant, disable_cuda_graph=disable_cuda_graph)
     torch.cuda.synchronize()
     model_end_time = time.time()
     model_load_time = model_end_time - model_start_time
@@ -87,8 +87,8 @@ def inference_example(model_path=None, prompts=None, image_path=None, temp=0.7, 
     elapsed_time = end_time - start_time
     throughput = (generated_token_len-1) / (elapsed_time-prefill_time)
 
-    output_text = inf_engine_.tokenizer.batch_decode(
-        generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+    output_text = inf_engine_.tokenizer.decode_batch(
+        generated_ids.tolist()
     )
 
     print(f"推理耗时: {elapsed_time:.4f} 秒")
@@ -115,7 +115,7 @@ if __name__ == "__main__":
     parser.add_argument('--topp', type=float, default = 1.0, help="topp sampling")
     parser.add_argument('--repetition-penalty', type=float, default=1.0, help="Repetition penalty")
     parser.add_argument('--presence-penalty', type=float, default=0.0, help="Presence penalty")
-    parser.add_argument('--use-cuda-graph', action='store_true', help="Use cuda graph for inference, default False")
+    parser.add_argument('--disable-cuda-graph', action='store_true', help="Disable cuda graph for inference, default False")
     
     parser.add_argument("-q", '--using-online-quant', type=str, default="", help="Path for online quantization json. Not '' indicates using online quantization for base model, eg. Qwen3-VL-8B-Instruct")
     
@@ -129,7 +129,7 @@ if __name__ == "__main__":
         max_generated_len=args.max_gen_len,
         sys_prompts=args.sys_prompt,
         path_online_quant=args.using_online_quant,
-        use_cuda_graph=args.use_cuda_graph,
+        disable_cuda_graph=args.disable_cuda_graph,
     )
 
     print(generated_text)

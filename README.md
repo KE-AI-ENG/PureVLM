@@ -24,21 +24,21 @@ For our test, the performance is comparable to mainstream frameworks(vLLM or SGL
 
 - CUDA toolkit
 - PyTorch 2.7 and above.
-- Transformers
+- tokenizers (huggingface provided, you can install it with: `pip install tokenizers`)
 
 **To Install:**
 
-editable:
+editable mode:
 
 `pip install -v -e . --no-build-isolation --no-deps`
 
-pacakge:
+pacakge mode:
 
 `python setup.py install`
 
 **Optional:**
 
-If you wish to use cuda-graph to get more performance improve, Please install [Flash-Attention](https://github.com/Dao-AILab/flash-attention).
+Please install [Flash-Attention](https://github.com/Dao-AILab/flash-attention) to get more performance improvements.
 
 ## Usage
 
@@ -48,9 +48,7 @@ If you wish to use cuda-graph to get more performance improve, Please install [F
 
 `cd examples`
 
-`python offline_demo.py -m /path/to/Qwen3-VL-8B-Instruct -p '描述这张图片' -t 0.0 -im ./demo.jpeg --use-cuda-graph`
-
-If use cuda graph, Please keep flash-attention installed.
+`python offline_demo.py -m /path/to/Qwen3-VL-8B-Instruct -p '描述这张图片' -t 0.0 -im ./demo.jpeg`
 
  - **Quantization:**
 
@@ -64,7 +62,7 @@ If use cuda graph, Please keep flash-attention installed.
 
 >launch server
 
-`purevlm-serve -m /path/to/qwen3-vl --host 0.0.0.0 --port 8002 --use-cuda-graph`
+`purevlm-serve -m /path/to/qwen3-vl --host 0.0.0.0 --port 8002`
 
 >launch client requests
 

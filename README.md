@@ -36,9 +36,6 @@ pacakge mode:
 
 `python setup.py install`
 
-**Optional:**
-
-Please install [Flash-Attention](https://github.com/Dao-AILab/flash-attention) to get more performance improvements.
 
 ## Usage
 
@@ -52,9 +49,9 @@ Please install [Flash-Attention](https://github.com/Dao-AILab/flash-attention) t
 
  - **Quantization:**
 
-  - Support w4a16 awq quantization, you can use [awq-model](https://huggingface.co/cpatonn/Qwen3-VL-8B-Instruct-AWQ-4bit) directly or use online quantization. 
+   - Support w4a16 awq quantization, you can use [awq-model](https://huggingface.co/cpatonn/Qwen3-VL-8B-Instruct-AWQ-4bit) directly or use online quantization. 
 
-  - If you use online quantization, please add `-q ./online_quantization_marlin.json`
+   - If you use online quantization, please add `-q ./online_quantization_marlin.json`
 
 ### server-client-mode
 

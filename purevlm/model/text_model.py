@@ -6,11 +6,6 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-try:
-    import flash_attn
-except ImportError:
-    print("Flash Attention is not available, you can't use cuda graph")
-
 import purevlm.layer as L
 from purevlm.utils.configs.qwen3_vl_config import Qwen3VLTextConfig
 from purevlm.utils.configs.qwen2_5_vl_config import Qwen2_5_VLConfig
@@ -109,8 +104,7 @@ class TextRotaryEmbedding:
         self.mrope_section = config.rope_scaling.get("mrope_section", [24, 20, 20])
 
         # 预计算 sin 和 cos
-        if self.config.use_flash_attn:
-            self._precompute_mrope(device)
+        self._precompute_mrope(device)
 
     def _precompute_mrope(self, device, max_seq_len=8192):
         """
@@ -254,8 +248,7 @@ class Qwen3TextAttention:
         key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape))
         value_states = self.v_proj(hidden_states).view(hidden_shape)
 
-        if self.config.use_flash_attn:
-            attn_output = flash_attn.flash_attn_with_kvcache(
+        attn_output = L.FlashAttn.flash_attn_with_kvcache(
                     query_states,
                     past_key_values.key_states[self.layer_idx],
                     past_key_values.value_states[self.layer_idx],
@@ -270,27 +263,8 @@ class Qwen3TextAttention:
                     causal=True,
                     window_size=(-1, -1),
                     rotary_interleaved=False,
-            )
-            attn_output = attn_output.reshape(*input_shape, -1)
-        else:
-            L.RotEmb(query_states, key_states, self.head_dim, position_embeddings, is_neox=True)
-            if past_key_values is not None:
-                # sin and cos are specific to RoPE models; cache_position needed for the static cache
-                #cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-                key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_position)
-            query_states = query_states.transpose(1, 2)
-            key_states = key_states.transpose(1, 2)
-            value_states = value_states.transpose(1, 2)
-            attn_output = torch.nn.functional.scaled_dot_product_attention(
-                query_states,
-                key_states,
-                value_states,
-                attention_mask,
-                scale=self.scaling,
-                is_causal = query_states.shape[2] > 1 and attention_mask is None,
-                enable_gqa = True
-            )
-            attn_output = attn_output.transpose(1,2).reshape(*input_shape, -1).contiguous()
+        )
+        attn_output = attn_output.reshape(*input_shape, -1)
 
         attn_output = self.o_proj(attn_output)
         return attn_output
@@ -340,44 +314,24 @@ class Qwen2_5_TextAttention:
         key_states = self.k_proj(hidden_states).view(hidden_shape)
         value_states = self.v_proj(hidden_states).view(hidden_shape)
 
-        if self.config.use_flash_attn:
-            attn_output = flash_attn.flash_attn_with_kvcache(
-                    query_states,
-                    past_key_values.key_states[self.layer_idx],
-                    past_key_values.value_states[self.layer_idx],
-                    key_states,
-                    value_states,
-                    rotary_cos=position_embeddings[0],
-                    rotary_sin=position_embeddings[1],
-                    cache_seqlens=cache_position,
-                    cache_batch_idx=None,
-                    cache_leftpad=None,
-                    block_table=None,
-                    causal=True,
-                    window_size=(-1, -1),
-                    rotary_interleaved=False,
-            )
-            attn_output = attn_output.reshape(*input_shape, -1)
-        else:
-            L.RotEmb(query_states, key_states, self.head_dim, position_embeddings, is_neox=True)
-            if past_key_values is not None:
-                # sin and cos are specific to RoPE models; cache_position needed for the static cache
-                #cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-                key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_position)
-            query_states = query_states.transpose(1, 2)
-            key_states = key_states.transpose(1, 2)
-            value_states = value_states.transpose(1, 2)
-            attn_output = torch.nn.functional.scaled_dot_product_attention(
+        attn_output = L.FlashAttn.flash_attn_with_kvcache(
                 query_states,
+                past_key_values.key_states[self.layer_idx],
+                past_key_values.value_states[self.layer_idx],
                 key_states,
                 value_states,
-                attention_mask,
-                scale=self.scaling,
-                is_causal = query_states.shape[2] > 1 and attention_mask is None,
-                enable_gqa = True
-            )
-            attn_output = attn_output.transpose(1,2).reshape(*input_shape, -1).contiguous()
-
+                rotary_cos=position_embeddings[0],
+                rotary_sin=position_embeddings[1],
+                cache_seqlens=cache_position,
+                cache_batch_idx=None,
+                cache_leftpad=None,
+                block_table=None,
+                causal=True,
+                window_size=(-1, -1),
+                rotary_interleaved=False,
+        )
+        attn_output = attn_output.reshape(*input_shape, -1)
+        
         attn_output = self.o_proj(attn_output)
         return attn_output
 
@@ -557,11 +511,8 @@ class TextModel:
         hidden_states = inputs_embeds
 
         # create position embeddings to be shared across the decoder layers
-        if self.config.use_flash_attn:
-            position_embeddings = [self.rotary_emb.cached_cos.to(hidden_states.dtype),
+        position_embeddings = [self.rotary_emb.cached_cos.to(hidden_states.dtype),
                                     self.rotary_emb.cached_sin.to(hidden_states.dtype)]
-        else:
-            position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         # decoder layers
         for layer_idx, decoder_layer in enumerate(self.layers):
@@ -597,11 +548,8 @@ class TextModel:
         hidden_states = inputs_embeds
 
         # create position embeddings to be shared across the decoder layers
-        if self.config.use_flash_attn:
-            position_embeddings = [self.rotary_emb.cached_cos.to(hidden_states.dtype),
-                                    self.rotary_emb.cached_sin.to(hidden_states.dtype)]
-        else:
-            position_embeddings = self.rotary_emb(hidden_states, position_ids)
+        position_embeddings = [self.rotary_emb.cached_cos.to(hidden_states.dtype),
+                                self.rotary_emb.cached_sin.to(hidden_states.dtype)]
 
         # decoder layers
         for layer_idx, decoder_layer in enumerate(self.layers):

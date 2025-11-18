@@ -3,6 +3,7 @@ from .conv import Conv3d
 from .norm import LayerNorm, RMSNorm
 from .embedding import Embedding
 from .rotemb import RotEmb
+from .attention import FlashAttn
 
 __all__ = [
     "QLinear",
@@ -11,4 +12,5 @@ __all__ = [
     "RMSNorm",
     "Embedding",
     "RotEmb",
+    "FlashAttn"
 ]

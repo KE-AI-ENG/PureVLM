@@ -141,10 +141,9 @@ class InferEngine:
 
         self.vocab_size = self.config.text_config.vocab_size if hasattr(self.config, 'text_config') else self.config.vocab_size
         self.eos_token_id = self.config.text_config.eos_token_id if hasattr(self.config, 'text_config') else self.config.eos_token_id
-        self.use_flash_attn = self.config.text_config.use_flash_attn if hasattr(self.config, 'text_config') else self.config.use_flash_attn
 
         # CUDA Graph 相关
-        self.use_cuda_graph = (not disable_cuda_graph) and self.use_flash_attn
+        self.use_cuda_graph = not disable_cuda_graph
         self.decode_graph = None
         self.decode_static_input_ids = None
         self.decode_static_cache_position = None
@@ -367,10 +366,7 @@ class InferEngine:
 
         input_ids, image_values, image_grid_thw = self.model.processor.tokenize_inputs(images, prompts, self.config, self.device)
 
-        if self.use_flash_attn:
-            cache_position = torch.tensor([0], dtype=torch.int, device=self.device)
-        else:
-            cache_position = torch.tensor([i for i in range(input_ids.shape[-1])], dtype=torch.int, device=self.device)
+        cache_position = torch.tensor([0], dtype=torch.int, device=self.device)
 
         output_ids = torch.zeros((1,0), dtype=torch.int64, device=self.device)
 

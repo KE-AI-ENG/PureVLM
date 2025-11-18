@@ -7,14 +7,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-try:
-    import flash_attn
-except ImportError:
-    print("Flash Attention is not available, the vision model will use torch adpa function.")
-
 import purevlm.layer as L
 from purevlm.utils.configs.qwen3_vl_config import Qwen3VLVisionConfig
-from purevlm.utils import flash_attn_available
 
 class Qwen3VisionMLP:
     def __init__(self, config, quant_config=None) -> None:
@@ -149,51 +143,18 @@ class VisionAttention:
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb_vision(query_states, key_states, cos, sin)
 
-        if flash_attn_available:
-            max_seqlen = (cu_seqlens[1:] - cu_seqlens[:-1]).max()
-            attn_output = flash_attn.flash_attn_varlen_func(
-                query_states,
-                key_states,
-                value_states,
-                cu_seqlens_q=cu_seqlens,
-                cu_seqlens_k=cu_seqlens,
-                max_seqlen_q=max_seqlen,
-                max_seqlen_k=max_seqlen,
-                softmax_scale=self.scaling
-            )
-            attn_output = attn_output.reshape(seq_length, -1).contiguous()
-        else:
-            query_states = query_states.transpose(0, 1).unsqueeze(0)
-            key_states = key_states.transpose(0, 1).unsqueeze(0)
-            value_states = value_states.transpose(0, 1).unsqueeze(0)
-
-            if cu_seqlens is None: #qwen3-vl
-                # with sdpa_kernel(sdpa_backend):
-                attn_output = torch.nn.functional.scaled_dot_product_attention(
-                    query_states,
-                    key_states,
-                    value_states,
-                    scale=self.scaling,
-                    is_causal=False,
-                )
-            else: #qwen2.5-vl
-                lengths = cu_seqlens[1:] - cu_seqlens[:-1]
-                splits = [
-                    torch.split(tensor, lengths.tolist(), dim=2) for tensor in (query_states, key_states, value_states)
-                ]
-                attn_outputs = [
-                    torch.nn.functional.scaled_dot_product_attention(
-                        q,
-                        k,
-                        v,
-                        scale=self.scaling,
-                        is_causal=False,
-                    )
-                    for q, k, v in zip(*splits)
-                ]
-                attn_output = torch.cat(attn_outputs, dim=2)
-
-            attn_output = attn_output.transpose(1,2).reshape(seq_length, -1).contiguous()
+        max_seqlen = (cu_seqlens[1:] - cu_seqlens[:-1]).max()
+        attn_output = L.FlashAttn.flash_attn_varlen_func(
+            query_states,
+            key_states,
+            value_states,
+            cu_seqlens_q=cu_seqlens,
+            cu_seqlens_k=cu_seqlens,
+            max_seqlen_q=max_seqlen,
+            max_seqlen_k=max_seqlen,
+            softmax_scale=self.scaling
+        )
+        attn_output = attn_output.reshape(seq_length, -1).contiguous()
 
         attn_output = self.proj(attn_output)
         return attn_output

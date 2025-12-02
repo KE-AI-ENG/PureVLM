@@ -140,8 +140,9 @@ class InferEngine:
         self.kv_cache.allocate(batch_size=batch_size, max_len=max_seq_len, device=device, dtype=torch_dtype)
 
         self.vocab_size = self.config.text_config.vocab_size if hasattr(self.config, 'text_config') else self.config.vocab_size
-        self.eos_token_id = self.config.text_config.eos_token_id if hasattr(self.config, 'text_config') else self.config.eos_token_id
-
+        self.eos_token_id = torch.tensor(
+                                self.config.text_config.eos_token_id if hasattr(self.config, 'text_config') else self.config.eos_token_id,
+                                device=self.device)
         # CUDA Graph 相关
         self.use_cuda_graph = not disable_cuda_graph
         self.decode_graph = None
@@ -398,7 +399,7 @@ class InferEngine:
         for l in range(generated_len-1):
 
             # 检查是否生成了结束token
-            if next_token.item() == self.eos_token_id:
+            if torch.equal(next_token, self.eos_token_id):
                 break
 
             if self.use_cuda_graph:

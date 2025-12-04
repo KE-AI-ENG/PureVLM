@@ -38,6 +38,11 @@ class KVCache:
         return (self.key_states[layer_idx][:, :self.cur_seq_len, :, :],
                 self.value_states[layer_idx][:, :self.cur_seq_len, :, :])
 
+    def delete(self, layer_idx, delete_len):
+        self.cur_seq_len -= delete_len
+        self.key_states[layer_idx] = self.key_states[layer_idx][:, :self.cur_seq_len, :, :]
+        self.value_states[layer_idx] = self.value_states[layer_idx][:, :self.cur_seq_len, :, :]
+
     def get_seq_length(self):
         return self.cur_seq_len
 
@@ -443,6 +448,8 @@ class TextModel:
         self.norm = L.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = TextRotaryEmbedding(config=config)
 
+        self.layers_to_capture = None
+
     def forward_prefill(
         self,
         input_ids: Optional[torch.IntTensor] = None,
@@ -475,7 +482,11 @@ class TextModel:
             position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         # decoder layers
+        aux_hidden_states = []
         for layer_idx, decoder_layer in enumerate(self.layers):
+            if self.layers_to_capture and layer_idx in self.layers_to_capture:
+                aux_hidden_states.append(hidden_states)
+
             layer_outputs = decoder_layer(
                 hidden_states,
                 attention_mask=None,
@@ -495,7 +506,7 @@ class TextModel:
 
         hidden_states = self.norm(hidden_states)
 
-        return hidden_states
+        return hidden_states, aux_hidden_states
 
     def forward_decode(
         self,

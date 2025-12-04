@@ -10,3 +10,4 @@ release-dist
 *.sqlite
 *.so
 .codelink
+*.ipynb

@@ -135,3 +135,22 @@ class Qwen3VLConfig:
         self.video_token_id = video_token_id
         self.vision_start_token_id = vision_start_token_id
         self.vision_end_token_id = vision_end_token_id
+
+class Qwen3EagleConfig(Qwen3VLTextConfig):
+    """Qwen3-Eagle模型配置类"""
+    def __init__(
+        self,
+        architectures = ["Qwen3ForCausalLMEagle3"],
+        draft_vocab_size = 32000,
+        target_model_type = "qwen3_vl",
+        mlp_bias = False,
+        pretraining_tp = 1,
+        transformers_version = "4.57.0.dev0",
+        use_sliding_window = False,
+        **kwargs
+        ):
+        super().__init__(**kwargs)
+
+        self.architectures = architectures
+        self.draft_vocab_size = draft_vocab_size
+        self.target_model_type = target_model_type

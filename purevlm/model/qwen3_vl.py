@@ -237,7 +237,7 @@ class Qwen3VLModel:
         # then use the prev pre-calculated rope-deltas to get the correct position ids
         else:
             batch_size, seq_length, _ = inputs_embeds.shape
-            position_ids = ((cache_position[0] + self.rope_deltas)
+            position_ids = ((cache_position + self.rope_deltas)
                             .repeat_interleave(batch_size // self.rope_deltas.shape[0], dim=0)  # repeat for batch
                             .unsqueeze(0).expand(3, -1, -1)) # expand for 3 dims
 
@@ -251,7 +251,7 @@ class Qwen3VLModel:
             deepstack_visual_embeds=deepstack_visual_embeds,
         )
 
-        return outputs
+        return outputs, position_ids
     
     def forward_decode(
         self,
@@ -299,21 +299,26 @@ class Qwen3VLForCausalLM:
             past_key_values: Optional[KVCache] = None,
             pixel_values: Optional[torch.Tensor] = None,
             image_grid_thw: Optional[torch.LongTensor] = None,
-            cache_position: Optional[torch.LongTensor] = None
+            cache_position: Optional[torch.LongTensor] = None,  
+            verify: bool = False,
     ) -> Tensor:
 
-        outputs = self.model.forward_prefill(
+        outputs, prefill_position_ids = self.model.forward_prefill(
             input_ids=input_ids,
             pixel_values=pixel_values,
             image_grid_thw=image_grid_thw,
             past_key_values=past_key_values,
             cache_position=cache_position,
         )
+        hidden_states, aux_hidden_states = outputs
 
-        last_hidden_states = outputs[:, -1, :] #get last hidden_states
+        if not verify:
+            last_hidden_states = hidden_states[:, -1, :] #get last hidden_states
+        else:
+            last_hidden_states = hidden_states
         logits = self.lm_head(last_hidden_states)
 
-        return logits
+        return logits, aux_hidden_states, prefill_position_ids
     
     def forward_decode(
             self,

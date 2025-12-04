@@ -100,6 +100,14 @@ def weight_loading(model, checkpoint, device='cuda'):
     failed_keys = []
 
     for key, tensor in checkpoint.items():
+        if "d2t" in key:
+            # d2t stores diffs between draft id and target id
+            # self.hot_token_id = loaded_weight + torch.arange(loaded_weight.shape[0])
+            continue
+
+        if "t2d" in key:
+            continue
+
         try:
             device_tensor = tensor.to(device)
 
@@ -321,7 +329,7 @@ class InferEngine:
         output_ids = torch.zeros((1,0), dtype=torch.int64, device=self.device)
 
         # ===== Prefill 阶段 =====
-        logits = self.model.forward_prefill(
+        logits, _, _ = self.model.forward_prefill(
             input_ids = input_ids,
             pixel_values = image_values,
             past_key_values = self.kv_cache,
